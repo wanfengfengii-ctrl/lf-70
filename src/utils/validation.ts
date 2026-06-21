@@ -171,7 +171,7 @@ function checkClosedStructure(
         'unclosed',
         '存在未闭合的折痕结构，不能标记为可折叠',
         foldLines.map(l => l.id),
-        'warning'
+        'error'
       )
     );
   }
@@ -180,5 +180,5 @@ function checkClosedStructure(
 }
 
 export function isFoldable(errors: ValidationError[]): boolean {
-  return !errors.some(e => e.severity === 'error' && e.type !== 'unclosed');
+  return !errors.some(e => e.severity === 'error');
 }

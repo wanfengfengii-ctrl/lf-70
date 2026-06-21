@@ -308,16 +308,18 @@ export function findClosedRegions(lines: LineSegment[]): string[][] {
 }
 
 export function hasUnclosedStructures(lines: LineSegment[]): boolean {
+  if (lines.length === 0) return false;
+
   const nodeMap = buildGraph(lines);
   let oddDegreeNodes = 0;
-  
+
   for (const node of nodeMap.values()) {
     if (node.edges.length % 2 !== 0) {
       oddDegreeNodes++;
     }
   }
-  
-  return oddDegreeNodes > 2;
+
+  return oddDegreeNodes > 0;
 }
 
 export function generateId(): string {

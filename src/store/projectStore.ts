@@ -188,7 +188,75 @@ function createSampleProjects(): Project[] {
     foldSteps: generateFoldSteps(envelopeLines),
   };
 
-  return [crane, waterbomb, envelope];
+  const paper4: Paper = { width: 400, height: 400, origin: { x: 50, y: 50 } };
+  const cx4 = paper4.origin.x + paper4.width / 2;
+  const cy4 = paper4.origin.y + paper4.height / 2;
+  const top4 = paper4.origin.y;
+  const bottom4 = paper4.origin.y + paper4.height;
+  const left4 = paper4.origin.x;
+  const right4 = paper4.origin.x + paper4.width;
+
+  const symmetricLines: LineSegment[] = [
+    {
+      id: 'sym-1',
+      type: 'axis',
+      start: { x: cx4, y: top4 },
+      end: { x: cx4, y: bottom4 },
+      visible: true,
+      order: 0,
+    },
+    {
+      id: 'sym-2',
+      type: 'mountain',
+      start: { x: left4, y: top4 },
+      end: { x: cx4, y: cy4 },
+      visible: true,
+      order: 1,
+    },
+    {
+      id: 'sym-3',
+      type: 'valley',
+      start: { x: left4, y: cy4 },
+      end: { x: cx4, y: bottom4 },
+      visible: true,
+      order: 2,
+    },
+    {
+      id: 'sym-2-sym',
+      type: 'mountain',
+      start: { x: right4, y: top4 },
+      end: { x: cx4, y: cy4 },
+      visible: true,
+      order: 3,
+      symmetried: true,
+      originalId: 'sym-2',
+    },
+    {
+      id: 'sym-3-sym',
+      type: 'valley',
+      start: { x: right4, y: cy4 },
+      end: { x: cx4, y: bottom4 },
+      visible: true,
+      order: 4,
+      symmetried: true,
+      originalId: 'sym-3',
+    },
+  ];
+
+  const symmetricErrors = validateLines(symmetricLines, paper4);
+  const symmetricDemo: Project = {
+    id: 'sample-symmetric',
+    name: '对称折痕示例',
+    createdAt: Date.now() - 86400000,
+    updatedAt: Date.now() - 3600000,
+    paper: paper4,
+    lines: symmetricLines,
+    isFoldable: isFoldable(symmetricErrors),
+    complexity: calculateComplexity(symmetricLines),
+    foldSteps: generateFoldSteps(symmetricLines),
+  };
+
+  return [crane, waterbomb, envelope, symmetricDemo];
 }
 
 interface ProjectStore {

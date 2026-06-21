@@ -102,12 +102,21 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   removeLine: (id) => {
     const state = get();
+    const targetLine = state.lines.find((l) => l.id === id);
     const newLines = state.lines.filter((l) => l.id !== id);
-    set((state) => ({
-      lines: newLines,
-      selectedLineIds: state.selectedLineIds.filter((lid) => lid !== id),
+
+    const removedAxis = targetLine?.type === 'axis';
+    const finalLines = removedAxis
+      ? newLines.filter((l) => !l.symmetried)
+      : newLines;
+
+    set((s) => ({
+      lines: finalLines,
+      selectedLineIds: s.selectedLineIds.filter((lid) => lid !== id),
+      axisLine: removedAxis ? null : s.axisLine,
+      symmetricMode: removedAxis ? false : s.symmetricMode,
       history: {
-        past: [...state.history.past, state.lines],
+        past: [...s.history.past, state.lines],
         future: [],
       },
     }));
@@ -133,6 +142,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       lines: [],
       selectedLineIds: [],
       orderCounter: 0,
+      axisLine: null,
+      symmetricMode: false,
       history: {
         past: [...s.history.past, state.lines],
         future: [],
@@ -233,6 +244,15 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       order: state.orderCounter,
     };
 
+    if (!isSegmentInPaper(newLine, state.paper)) {
+      set({
+        isDrawing: false,
+        drawStart: null,
+        drawEnd: null,
+      });
+      return;
+    }
+
     let newLines = [...state.lines, newLine];
 
     if (state.symmetricMode && state.axisLine && lineType !== 'axis') {
@@ -277,12 +297,24 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const state = get();
     if (state.selectedLineIds.length === 0) return;
 
-    const newLines = state.lines.filter(
+    const selectedLines = state.lines.filter((l) =>
+      state.selectedLineIds.includes(l.id)
+    );
+    const hasDeletedAxis = selectedLines.some((l) => l.type === 'axis');
+
+    let newLines = state.lines.filter(
       (l) => !state.selectedLineIds.includes(l.id)
     );
+
+    if (hasDeletedAxis) {
+      newLines = newLines.filter((l) => !l.symmetried);
+    }
+
     set((s) => ({
       lines: newLines,
       selectedLineIds: [],
+      axisLine: hasDeletedAxis ? null : s.axisLine,
+      symmetricMode: hasDeletedAxis ? false : s.symmetricMode,
       history: {
         past: [...s.history.past, state.lines],
         future: [],
@@ -296,10 +328,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
       const past = [...state.history.past];
       const previous = past.pop()!;
+      const previousAxis = previous.find((l) => l.type === 'axis') || null;
 
       return {
         lines: previous,
         selectedLineIds: [],
+        axisLine: previousAxis,
+        symmetricMode: previousAxis ? state.symmetricMode : false,
         history: {
           past,
           future: [state.lines, ...state.history.future],
@@ -314,10 +349,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
       const future = [...state.history.future];
       const next = future.shift()!;
+      const nextAxis = next.find((l) => l.type === 'axis') || null;
 
       return {
         lines: next,
         selectedLineIds: [],
+        axisLine: nextAxis,
+        symmetricMode: nextAxis ? state.symmetricMode : false,
         history: {
           past: [...state.history.past, state.lines],
           future,
@@ -385,10 +423,13 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   loadLines: (lines) => {
     const state = get();
+    const axis = lines.find((l) => l.type === 'axis') || null;
     set((s) => ({
       lines,
       selectedLineIds: [],
       orderCounter: lines.length,
+      axisLine: axis,
+      symmetricMode: axis ? state.symmetricMode : false,
       history: {
         past: [...s.history.past, state.lines],
         future: [],
