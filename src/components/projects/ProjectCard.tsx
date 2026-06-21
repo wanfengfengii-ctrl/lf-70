@@ -9,6 +9,7 @@ interface ProjectCardProps {
   onPreview: (id: string) => void;
   onDelete: (id: string) => void;
   onExport: (project: Project) => void;
+  disabled?: boolean;
 }
 
 export function ProjectCard({
@@ -17,6 +18,7 @@ export function ProjectCard({
   onPreview,
   onDelete,
   onExport,
+  disabled = false,
 }: ProjectCardProps) {
   const complexityLevel = getComplexityLevel(project.complexity);
   const complexityColor = getComplexityColor(project.complexity);
@@ -117,32 +119,51 @@ export function ProjectCard({
           更新于 {formatDate(project.updatedAt)}
         </div>
 
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1 transition-opacity ${
+          disabled ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+        }`}>
           <button
-            onClick={() => onOpen(project.id)}
-            className="flex-1 h-8 rounded-lg bg-stone-800 text-white text-xs flex items-center justify-center gap-1 hover:bg-stone-700 transition-colors"
+            onClick={() => !disabled && onOpen(project.id)}
+            className={`flex-1 h-8 rounded-lg text-xs flex items-center justify-center gap-1 transition-colors ${
+              disabled
+                ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                : 'bg-stone-800 text-white hover:bg-stone-700'
+            }`}
+            title={disabled ? '请先退出对比模式' : '编辑'}
           >
             <Edit3 className="w-3 h-3" />
             编辑
           </button>
           <button
-            onClick={() => onPreview(project.id)}
-            className="h-8 w-8 rounded-lg bg-amber-500 text-white flex items-center justify-center hover:bg-amber-600 transition-colors"
-            title="预览"
+            onClick={() => !disabled && onPreview(project.id)}
+            className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors ${
+              disabled
+                ? 'bg-stone-200 text-stone-400 cursor-not-allowed'
+                : 'bg-amber-500 text-white hover:bg-amber-600'
+            }`}
+            title={disabled ? '请先退出对比模式' : '预览'}
           >
             <Play className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => onExport(project)}
-            className="h-8 w-8 rounded-lg border border-stone-200 text-stone-500 flex items-center justify-center hover:bg-stone-50 transition-colors"
-            title="导出"
+            onClick={() => !disabled && onExport(project)}
+            className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-colors ${
+              disabled
+                ? 'border-stone-200 text-stone-400 cursor-not-allowed bg-stone-100'
+                : 'border-stone-200 text-stone-500 hover:bg-stone-50'
+            }`}
+            title={disabled ? '请先退出对比模式' : '导出'}
           >
             <Download className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={() => onDelete(project.id)}
-            className="h-8 w-8 rounded-lg border border-stone-200 text-stone-400 flex items-center justify-center hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-colors"
-            title="删除"
+            onClick={() => !disabled && onDelete(project.id)}
+            className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-colors ${
+              disabled
+                ? 'border-stone-200 text-stone-400 cursor-not-allowed bg-stone-100'
+                : 'border-stone-200 text-stone-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200'
+            }`}
+            title={disabled ? '请先退出对比模式' : '删除'}
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>

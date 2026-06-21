@@ -22,9 +22,9 @@ export interface LineSegment {
 }
 
 export interface FoldConstraint {
-  foldAngle?: number;
-  priority?: number;
-  linkageIds?: string[];
+  foldAngle?: number | null;
+  priority?: number | null;
+  linkageIds?: string[] | null;
 }
 
 export interface Paper {
@@ -85,6 +85,7 @@ export interface ProjectComparisonStats {
   lineCount: number;
   mountainCount: number;
   valleyCount: number;
+  successRate: number;
 }
 
 export interface ProjectComparison {

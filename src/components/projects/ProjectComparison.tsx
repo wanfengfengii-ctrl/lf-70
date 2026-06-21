@@ -16,6 +16,7 @@ import {
   Play,
   Download,
   Link2,
+  Target,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type { ProjectComparison as ProjectComparisonType } from '@/types';
@@ -32,6 +33,14 @@ interface ComparisonMetric {
 }
 
 const METRICS: ComparisonMetric[] = [
+  {
+    key: 'successRate',
+    label: '预计折叠成功率',
+    icon: <Target className="w-4 h-4" />,
+    higherIsBetter: true,
+    format: (v) => `${v}%`,
+    category: 'core',
+  },
   {
     key: 'complexity',
     label: '复杂度分数',
@@ -103,7 +112,7 @@ export function ProjectComparisonView() {
   const comparison = useMemo(() => {
     if (!selectedA || !selectedB) return null;
     return compareProjects(selectedA, selectedB);
-  }, [selectedA, selectedB, compareProjects]);
+  }, [selectedA, selectedB, compareProjects, projects]);
 
   const projectA = selectedA ? getProject(selectedA) : null;
   const projectB = selectedB ? getProject(selectedB) : null;
@@ -146,6 +155,12 @@ export function ProjectComparisonView() {
   const generateSummary = (comp: ProjectComparisonType) => {
     const { projectA, projectB } = comp;
     const summary: string[] = [];
+    if (projectA.successRate !== projectB.successRate) {
+      const higher =
+        projectA.successRate > projectB.successRate ? projectA.name : projectB.name;
+      const diff = Math.abs(projectA.successRate - projectB.successRate);
+      summary.push(`${higher} 的预计折叠成功率更高 (高出 ${diff}%)`);
+    }
     if (projectA.complexity !== projectB.complexity) {
       const simpler =
         projectA.complexity < projectB.complexity ? projectA.name : projectB.name;
@@ -252,7 +267,7 @@ export function ProjectComparisonView() {
             更新于 {new Date(project.updatedAt).toLocaleDateString('zh-CN')}
           </p>
 
-          <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="grid grid-cols-4 gap-2 mb-4">
             <div className="text-center p-2 bg-red-50 rounded-lg">
               <div className="text-lg font-semibold text-red-600">
                 {stats?.mountainCount ?? 0}
@@ -270,6 +285,12 @@ export function ProjectComparisonView() {
                 {stats?.complexity.toFixed(1) ?? '-'}
               </div>
               <div className="text-[10px] text-stone-400">{complexityLevel}</div>
+            </div>
+            <div className="text-center p-2 bg-green-50 rounded-lg">
+              <div className="text-lg font-semibold text-green-600">
+                {stats?.successRate ?? 0}%
+              </div>
+              <div className="text-[10px] text-green-400">成功率</div>
             </div>
           </div>
 

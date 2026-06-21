@@ -56,9 +56,9 @@ export function ConstraintPanel() {
   };
 
   const getCurrentPriority = () => {
-    if (foldableSelectedLines.length === 0) return 0;
+    if (foldableSelectedLines.length === 0) return null;
     const firstWithPrio = foldableSelectedLines.find((l) => l.priority !== undefined);
-    return firstWithPrio?.priority ?? 0;
+    return firstWithPrio?.priority ?? null;
   };
 
   const handleAngleChange = (value: number) => {
@@ -70,7 +70,8 @@ export function ConstraintPanel() {
 
   const handlePriorityChange = (delta: number) => {
     const current = getCurrentPriority();
-    const newPriority = Math.max(0, current + delta);
+    const basePriority = current ?? 0;
+    const newPriority = Math.max(0, basePriority + delta);
     for (const line of foldableSelectedLines) {
       updateLineConstraint(line.id, { priority: newPriority });
     }
@@ -85,7 +86,7 @@ export function ConstraintPanel() {
 
   const handleResetPriority = () => {
     for (const line of foldableSelectedLines) {
-      updateLineConstraint(line.id, { priority: undefined });
+      updateLineConstraint(line.id, { priority: null });
     }
   };
 
@@ -304,11 +305,13 @@ export function ConstraintPanel() {
               </button>
 
               <div className="flex-1 text-center">
-                <div className="text-3xl font-semibold text-stone-800 tabular-nums">
-                  {priority}
+                <div className={`text-3xl font-semibold tabular-nums ${
+                  priority === null ? 'text-stone-300' : 'text-stone-800'
+                }`}>
+                  {priority === null ? '—' : priority}
                 </div>
                 <div className="text-[10px] text-stone-400">
-                  数值越小优先级越高
+                  {priority === null ? '未设置优先级' : '数值越小优先级越高'}
                 </div>
               </div>
 

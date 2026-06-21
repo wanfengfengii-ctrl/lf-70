@@ -443,12 +443,17 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     const state = get();
     const newLines = state.lines.map((l) => {
       if (l.id !== lineId) return l;
-      return {
-        ...l,
-        foldAngle: constraint.foldAngle !== undefined ? constraint.foldAngle : l.foldAngle,
-        priority: constraint.priority !== undefined ? constraint.priority : l.priority,
-        linkageIds: constraint.linkageIds !== undefined ? constraint.linkageIds : l.linkageIds,
-      };
+      const updated = { ...l };
+      if ('foldAngle' in constraint) {
+        updated.foldAngle = constraint.foldAngle === null ? undefined : constraint.foldAngle;
+      }
+      if ('priority' in constraint) {
+        updated.priority = constraint.priority === null ? undefined : constraint.priority;
+      }
+      if ('linkageIds' in constraint) {
+        updated.linkageIds = constraint.linkageIds === null ? undefined : constraint.linkageIds;
+      }
+      return updated;
     });
     set((s) => ({
       lines: newLines,

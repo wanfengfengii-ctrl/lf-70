@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Project, LineSegment, Paper, ProjectComparison } from '@/types';
 import { generateId } from '@/utils/geometry';
-import { calculateComplexity, generateFoldSteps } from '@/utils/complexity';
+import { calculateComplexity, generateFoldSteps, calculateSuccessRate } from '@/utils/complexity';
 import { validateLines, isFoldable, countConflicts } from '@/utils/validation';
 
 const STORAGE_KEY = 'origami-projects';
@@ -445,15 +445,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   getComparisonStats: (project) => {
     const mountainCount = project.lines.filter((l) => l.type === 'mountain').length;
     const valleyCount = project.lines.filter((l) => l.type === 'valley').length;
+    const conflictCount = project.conflictCount ?? 0;
+    const successRate = calculateSuccessRate(
+      project.isFoldable,
+      conflictCount,
+      project.complexity,
+      project.foldSteps.length
+    );
     return {
       id: project.id,
       name: project.name,
       complexity: project.complexity,
       stepCount: project.foldSteps.length,
-      conflictCount: project.conflictCount ?? 0,
+      conflictCount,
       lineCount: project.lines.length,
       mountainCount,
       valleyCount,
+      successRate,
     };
   },
 

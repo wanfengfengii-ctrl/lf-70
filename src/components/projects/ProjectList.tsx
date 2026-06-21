@@ -304,6 +304,7 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
                     onPreview={(id) => navigate(`/preview/${id}`)}
                     onDelete={handleDelete}
                     onExport={handleExport}
+                    disabled={compareMode}
                   />
                 </div>
               );

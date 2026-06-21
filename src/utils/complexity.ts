@@ -64,6 +64,31 @@ export function getComplexityColor(complexity: number): string {
   return 'text-red-600';
 }
 
+export function calculateSuccessRate(
+  isFoldable: boolean,
+  conflictCount: number,
+  complexity: number,
+  stepCount: number
+): number {
+  let score = 100;
+
+  if (!isFoldable) {
+    score -= 40;
+  }
+
+  score -= conflictCount * 8;
+
+  if (complexity >= 50) score -= 15;
+  else if (complexity >= 25) score -= 8;
+  else if (complexity >= 10) score -= 3;
+
+  if (stepCount > 10) score -= 10;
+  else if (stepCount > 6) score -= 5;
+  else if (stepCount > 3) score -= 2;
+
+  return Math.max(5, Math.min(98, Math.round(score)));
+}
+
 function buildLinkageGroups(foldLines: LineSegment[]): LineSegment[][] {
   const visited = new Set<string>();
   const groups: LineSegment[][] = [];
