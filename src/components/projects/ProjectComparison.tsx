@@ -17,10 +17,15 @@ import {
   Download,
   Link2,
   Target,
+  Palette,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { ProjectComparison as ProjectComparisonType } from '@/types';
+import type { ProjectComparison as ProjectComparisonType, PaperMaterialConfig } from '@/types';
 import { getComplexityLevel, getComplexityColor } from '@/utils/complexity';
+import { MATERIAL_TYPE_LABELS } from '@/utils/materialAnalysis';
 import { lineColors } from '@/components/canvas/lineStyles';
 
 interface ComparisonMetric {
@@ -43,11 +48,18 @@ const METRICS: ComparisonMetric[] = [
   },
   {
     key: 'complexity',
-    label: '复杂度分数',
+    label: '基础复杂度',
     icon: <BarChart3 className="w-4 h-4" />,
     higherIsBetter: false,
     category: 'core',
   },
+  {
+    key: 'adjustedComplexity',
+    label: '材质调整复杂度',
+    icon: <Sparkles className="w-4 h-4 text-amber-500" />,
+    higherIsBetter: false,
+    category: 'core',
+  } as any,
   {
     key: 'stepCount',
     label: '折叠步骤数',
@@ -88,6 +100,18 @@ const CATEGORY_LABELS: Record<string, string> = {
   structure: '结构组成',
   quality: '质量评估',
 };
+
+function lightenColor(hex: string, amount: number): string {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.min(255, (num >> 16) + amount));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0x00ff) + amount));
+  const b = Math.max(0, Math.min(255, (num & 0x0000ff) + amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+}
+
+function darkenColor(hex: string, amount: number): string {
+  return lightenColor(hex, -amount);
+}
 
 export function ProjectComparisonView() {
   const { idA, idB } = useParams<{ idA: string; idB: string }>();
@@ -191,11 +215,26 @@ export function ProjectComparisonView() {
     if (!project) return null;
     const stats = comparison?.[side === 'A' ? 'projectA' : 'projectB'];
     const complexityColor = stats
-      ? getComplexityColor(stats.complexity)
+      ? getComplexityColor(stats.adjustedComplexity ?? stats.complexity)
       : 'text-stone-600';
     const complexityLevel = stats
-      ? getComplexityLevel(stats.complexity)
+      ? getComplexityLevel(stats.adjustedComplexity ?? stats.complexity)
       : '-';
+
+    const materialConfigs = project.materialConfigs ?? [];
+    const activeMaterial = materialConfigs.find(
+      (c: PaperMaterialConfig) => c.id === project.activeMaterialConfigId
+    );
+    const riskLevel = stats?.riskLevel;
+    const riskConfig = riskLevel
+      ? riskLevel === 'low'
+        ? { label: '低风险', color: 'text-emerald-700', bg: 'bg-emerald-50', icon: ShieldCheck }
+        : riskLevel === 'medium'
+        ? { label: '中风险', color: 'text-yellow-700', bg: 'bg-yellow-50', icon: AlertTriangle }
+        : riskLevel === 'high'
+        ? { label: '高风险', color: 'text-orange-700', bg: 'bg-orange-50', icon: AlertTriangle }
+        : { label: '严重', color: 'text-red-700', bg: 'bg-red-50', icon: ShieldAlert }
+      : null;
 
     return (
       <div className="bg-white rounded-2xl shadow-sm border border-stone-200 overflow-hidden">
@@ -205,11 +244,18 @@ export function ProjectComparisonView() {
             className="w-full h-full"
             preserveAspectRatio="xMidYMid meet"
           >
+            <defs>
+              <linearGradient id={`paper-grad-${side}`} x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor={activeMaterial?.color ? lightenColor(activeMaterial.color, 15) : '#FFFAF0'} />
+                <stop offset="50%" stopColor={activeMaterial?.color ?? '#F5F0E6'} />
+                <stop offset="100%" stopColor={activeMaterial?.color ? darkenColor(activeMaterial.color, 20) : '#EDE4D3'} />
+              </linearGradient>
+            </defs>
             <g transform="translate(50, 50)">
               <rect
                 width={project.paper.width}
                 height={project.paper.height}
-                fill="#F5F0E6"
+                fill={`url(#paper-grad-${side})`}
                 stroke="#D4C9B8"
                 strokeWidth="1"
                 rx="2"
@@ -244,7 +290,13 @@ export function ProjectComparisonView() {
             方案 {side}
           </div>
 
-          <div className="absolute top-3 right-3">
+          <div className="absolute top-3 right-3 flex items-center gap-1.5">
+            {riskConfig && (
+              <span className={`flex items-center gap-1 px-2 py-1 text-xs rounded-full ${riskConfig.bg} ${riskConfig.color}`}>
+                <riskConfig.icon className="w-3 h-3" />
+                {riskConfig.label}
+              </span>
+            )}
             {project.isFoldable ? (
               <span className="flex items-center gap-1 px-2 py-1 bg-green-500/90 text-white text-xs rounded-full">
                 <CheckCircle2 className="w-3 h-3" />
@@ -263,9 +315,48 @@ export function ProjectComparisonView() {
           <h3 className="text-lg font-serif font-medium text-stone-800 mb-1 truncate">
             {project.name}
           </h3>
-          <p className="text-xs text-stone-400 mb-4">
-            更新于 {new Date(project.updatedAt).toLocaleDateString('zh-CN')}
-          </p>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs text-stone-400">
+              更新于 {new Date(project.updatedAt).toLocaleDateString('zh-CN')}
+            </p>
+            {activeMaterial && (
+              <span className="text-[10px] flex items-center gap-1 text-stone-500">
+                <div className="w-2.5 h-2.5 rounded-full border border-stone-200" style={{ backgroundColor: activeMaterial.color }} />
+                {MATERIAL_TYPE_LABELS[activeMaterial.materialType]}
+              </span>
+            )}
+          </div>
+
+          {activeMaterial && (
+            <div className="mb-4 p-2.5 bg-stone-50 rounded-lg border border-stone-100">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Palette className="w-3 h-3 text-amber-600 flex-shrink-0" />
+                <span className="text-xs font-medium text-stone-700 truncate flex-1">
+                  {activeMaterial.name}
+                </span>
+                {stats?.materialName && stats.materialName !== activeMaterial.name && (
+                  <Sparkles className="w-3 h-3 text-amber-500" />
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[10px] text-stone-500">
+                <span>厚度: {activeMaterial.thicknessMm}mm</span>
+                <span>韧性: {activeMaterial.toughness}</span>
+                <span className="truncate">
+                  {stats?.adjustedComplexity !== undefined && stats.adjustedComplexity !== stats.complexity
+                    ? `调整后: ${stats.adjustedComplexity.toFixed(1)}`
+                    : ''
+                  }
+                </span>
+              </div>
+              {materialConfigs.length > 1 && (
+                <div className="mt-1.5 flex items-center gap-1">
+                  <span className="text-[10px] text-stone-400">
+                    {materialConfigs.length} 套工艺
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-4 gap-2 mb-4">
             <div className="text-center p-2 bg-red-50 rounded-lg">
@@ -282,7 +373,7 @@ export function ProjectComparisonView() {
             </div>
             <div className="text-center p-2 bg-stone-50 rounded-lg">
               <div className={`text-lg font-semibold ${complexityColor}`}>
-                {stats?.complexity.toFixed(1) ?? '-'}
+                {(stats?.adjustedComplexity ?? stats?.complexity ?? 0).toFixed(1)}
               </div>
               <div className="text-[10px] text-stone-400">{complexityLevel}</div>
             </div>
@@ -314,6 +405,7 @@ export function ProjectComparisonView() {
                 URL.revokeObjectURL(url);
               }}
               className="h-9 w-9 rounded-lg border border-stone-200 text-stone-500 flex items-center justify-center hover:bg-stone-50 transition-colors"
+              title="导出方案(含材质参数)"
             >
               <Download className="w-4 h-4" />
             </button>

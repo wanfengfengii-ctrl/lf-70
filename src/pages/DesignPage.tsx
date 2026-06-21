@@ -3,6 +3,7 @@ import { Toolbar } from '@/components/toolbar/Toolbar';
 import { LayerPanel } from '@/components/panels/LayerPanel';
 import { ValidationPanel } from '@/components/panels/ValidationPanel';
 import { ConstraintPanel } from '@/components/panels/ConstraintPanel';
+import { PaperMaterialPanel } from '@/components/panels/PaperMaterialPanel';
 import { DesignCanvas } from '@/components/canvas/DesignCanvas';
 import { StatusBar } from '@/components/StatusBar';
 import { useNavigate } from 'react-router-dom';
@@ -11,14 +12,14 @@ import { useProjectStore } from '@/store/projectStore';
 import type { ValidationError, Project } from '@/types';
 import { isFoldable as checkFoldable } from '@/utils/validation';
 import { calculateComplexity, getComplexityLevel, getComplexityColor } from '@/utils/complexity';
-import { AlertCircle, Settings } from 'lucide-react';
+import { AlertCircle, Settings, Layers } from 'lucide-react';
 
-type RightPanelTab = 'validation' | 'constraint';
+type RightPanelTab = 'validation' | 'constraint' | 'material';
 
 export function DesignPage() {
   const navigate = useNavigate();
   const { lines, paper } = useCanvasStore();
-  const { loadProjects } = useProjectStore();
+  const { loadProjects, saveCurrentState, currentProjectId, projects, setCurrentProject } = useProjectStore();
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('validation');
 
@@ -48,7 +49,11 @@ export function DesignPage() {
   const saveCurrentProject = (): Project | null => {
     const { saveCurrentState } = useProjectStore.getState();
     const name = `设计方案 ${new Date().toLocaleDateString()}`;
-    return saveCurrentState(name, paper, lines);
+    const project = saveCurrentState(name, paper, lines);
+    if (project && project.id !== currentProjectId) {
+      setCurrentProject(project.id);
+    }
+    return project;
   };
 
   const handleOpenProjects = () => {
@@ -76,16 +81,16 @@ export function DesignPage() {
           <div className="flex items-stretch border-b border-stone-200 bg-stone-50">
             <button
               onClick={() => setRightPanelTab('validation')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors relative ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-medium transition-colors relative ${
                 rightPanelTab === 'validation'
                   ? 'bg-white text-amber-700'
                   : 'text-stone-500 hover:text-stone-700 hover:bg-white/50'
               }`}
             >
-              <AlertCircle className="w-4 h-4" />
+              <AlertCircle className="w-3.5 h-3.5" />
               <span>校验</span>
               {(errorCount > 0 || warningCount > 0) && (
-                <span className={`inline-flex items-center justify-center min-w-[18px] h-4.5 px-1.5 rounded-full text-[10px] font-semibold ${
+                <span className={`inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full text-[10px] font-semibold ${
                   errorCount > 0
                     ? 'bg-red-500 text-white'
                     : 'bg-amber-500 text-white'
@@ -99,15 +104,32 @@ export function DesignPage() {
             </button>
             <button
               onClick={() => setRightPanelTab('constraint')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors relative ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-medium transition-colors relative ${
                 rightPanelTab === 'constraint'
                   ? 'bg-white text-amber-700'
                   : 'text-stone-500 hover:text-stone-700 hover:bg-white/50'
               }`}
             >
-              <Settings className="w-4 h-4" />
+              <Settings className="w-3.5 h-3.5" />
               <span>约束</span>
               {rightPanelTab === 'constraint' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
+              )}
+            </button>
+            <button
+              onClick={() => {
+                saveCurrentProject();
+                setRightPanelTab('material');
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-medium transition-colors relative ${
+                rightPanelTab === 'material'
+                  ? 'bg-white text-amber-700'
+                  : 'text-stone-500 hover:text-stone-700 hover:bg-white/50'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>材质</span>
+              {rightPanelTab === 'material' && (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
               )}
             </button>
@@ -122,8 +144,23 @@ export function DesignPage() {
                 complexityLevel={complexityLevel}
                 complexityColor={complexityColor}
               />
-            ) : (
+            ) : rightPanelTab === 'constraint' ? (
               <ConstraintPanel />
+            ) : currentProjectId ? (
+              <PaperMaterialPanel projectId={currentProjectId} />
+            ) : (
+              <div className="h-full flex items-center justify-center text-center p-6">
+                <div>
+                  <Layers className="w-12 h-12 text-stone-300 mx-auto mb-3" />
+                  <p className="text-sm text-stone-500 mb-3">请先保存方案</p>
+                  <button
+                    onClick={handlePreview}
+                    className="text-xs px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600 transition-colors"
+                  >
+                    保存并预览
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         </div>

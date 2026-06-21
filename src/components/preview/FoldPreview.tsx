@@ -12,11 +12,19 @@ import {
   ChevronDown,
   Layers,
   Link2,
+  Target,
+  AlertTriangle,
+  ShieldCheck,
+  Sparkles,
+  Download,
+  Palette,
+  Eye,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import type { LineSegment, Point, FoldStep } from '@/types';
+import type { LineSegment, Point, FoldStep, PaperMaterialConfig, MaterialAnalysisResult } from '@/types';
 import { lineColors, lineDashArrays } from '@/components/canvas/lineStyles';
 import { reflectPointOverLine } from '@/utils/geometry';
+import { MATERIAL_TYPE_LABELS, PROCESSING_METHOD_LABELS, analyzeMaterialForProject } from '@/utils/materialAnalysis';
 
 interface FoldTransformState {
   stepIndex: number;
@@ -33,7 +41,8 @@ function computeFoldedPoint(
   point: Point,
   foldLine: LineSegment,
   foldAngleDeg: number,
-  progress: number
+  progress: number,
+  layerMultiplier: number = 1
 ): Point {
   const side = getSide(foldLine, point);
   if (side === 0) return { ...point };
@@ -70,7 +79,7 @@ function computeFoldedPoint(
 
   return {
     x: point.x + finalOffset.x,
-    y: point.y + finalOffset.y - foldedZ * 0.3,
+    y: point.y + finalOffset.y - foldedZ * 0.3 * layerMultiplier,
   };
 }
 
@@ -87,7 +96,8 @@ function applyFoldsToPoint(
   point: Point,
   allSteps: FoldStep[],
   lines: LineSegment[],
-  state: FoldTransformState
+  state: FoldTransformState,
+  layerMultiplier: number = 1
 ): Point {
   let result = { ...point };
   for (let i = 0; i <= state.stepIndex; i++) {
@@ -97,7 +107,7 @@ function applyFoldsToPoint(
     for (const lineId of step.lineIds) {
       const line = lines.find((l) => l.id === lineId);
       if (!line) continue;
-      result = computeFoldedPoint(result, line, step.foldAngle, progress);
+      result = computeFoldedPoint(result, line, step.foldAngle, progress, layerMultiplier);
     }
   }
   return result;
@@ -107,7 +117,8 @@ function getStepFoldDepth(
   step: FoldStep,
   lines: LineSegment[],
   progress: number,
-  paper: { origin: Point; width: number; height: number }
+  paper: { origin: Point; width: number; height: number },
+  layerMultiplier: number = 1
 ): number {
   let maxOffset = 0;
   for (const lineId of step.lineIds) {
@@ -120,7 +131,7 @@ function getStepFoldDepth(
       { x: paper.origin.x, y: paper.origin.y + paper.height },
     ];
     for (const corner of corners) {
-      const folded = computeFoldedPoint(corner, line, step.foldAngle, progress);
+      const folded = computeFoldedPoint(corner, line, step.foldAngle, progress, layerMultiplier);
       const dx = folded.x - corner.x;
       const dy = folded.y - corner.y;
       maxOffset = Math.max(maxOffset, Math.sqrt(dx * dx + dy * dy));
@@ -129,17 +140,42 @@ function getStepFoldDepth(
   return maxOffset;
 }
 
+const RISK_BADGE_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  low: { label: '低风险', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200' },
+  medium: { label: '中风险', color: 'text-yellow-700', bg: 'bg-yellow-50', border: 'border-yellow-200' },
+  high: { label: '高风险', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200' },
+  critical: { label: '严重', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200' },
+};
+
 export function FoldPreview() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { getProject, loadProjects } = useProjectStore();
+  const {
+    getProject,
+    loadProjects,
+    setActiveMaterialConfig,
+    getActiveMaterialConfig,
+    analyzeActiveMaterial,
+    exportProject,
+  } = useProjectStore();
   const project = id ? getProject(id) : null;
+
+  const materialConfigs = project?.materialConfigs ?? [];
+  const activeMaterial = id ? getActiveMaterialConfig(id) : null;
+  const activeAnalysis: MaterialAnalysisResult | null = useMemo(() => {
+    if (!project || !id) return null;
+    return analyzeActiveMaterial(id);
+  }, [project, id, activeMaterial?.id]);
+
+  const visualEffects = activeAnalysis?.materialEffects;
+  const effectiveFoldSteps = activeAnalysis?.recommendedFoldOrder ?? project?.foldSteps ?? [];
 
   const [currentStep, setCurrentStep] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [animationProgress, setAnimationProgress] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [showWireframe, setShowWireframe] = useState(true);
+  const [showMaterialInfo, setShowMaterialInfo] = useState(true);
 
   useEffect(() => {
     loadProjects();
@@ -152,13 +188,18 @@ export function FoldPreview() {
   }, [project?.id]);
 
   useEffect(() => {
-    if (!isPlaying || !project) return;
+    setCurrentStep(0);
+    setAnimationProgress(0);
+  }, [activeMaterial?.id]);
+
+  useEffect(() => {
+    if (!isPlaying || !effectiveFoldSteps.length) return;
 
     const interval = setInterval(() => {
       setAnimationProgress((prev) => {
         const next = prev + 0.015 * speed;
         if (next >= 1) {
-          if (currentStep < project.foldSteps.length - 1) {
+          if (currentStep < effectiveFoldSteps.length - 1) {
             setCurrentStep((s) => s + 1);
             return 0;
           } else {
@@ -171,15 +212,17 @@ export function FoldPreview() {
     }, 25);
 
     return () => clearInterval(interval);
-  }, [isPlaying, currentStep, project, speed]);
+  }, [isPlaying, currentStep, effectiveFoldSteps.length, speed]);
 
   const transformState: FoldTransformState = {
     stepIndex: currentStep,
     progress: animationProgress,
   };
 
-  const currentStepData = project?.foldSteps[currentStep];
+  const currentStepData = effectiveFoldSteps[currentStep];
   const highlightedLineIds = useMemo(() => currentStepData?.lineIds || [], [currentStepData]);
+
+  const layerMultiplier = visualEffects?.layerOffsetMultiplier ?? 1;
 
   const paperCorners = useMemo(() => {
     if (!project) return [];
@@ -195,9 +238,9 @@ export function FoldPreview() {
   const foldedCorners = useMemo(() => {
     if (!project) return [];
     return paperCorners.map((p) =>
-      applyFoldsToPoint(p, project.foldSteps, project.lines, transformState)
+      applyFoldsToPoint(p, effectiveFoldSteps, project.lines, transformState, layerMultiplier)
     );
-  }, [paperCorners, project?.foldSteps, project?.lines, transformState]);
+  }, [paperCorners, effectiveFoldSteps, project?.lines, transformState, layerMultiplier]);
 
   const foldedPaperPath = useMemo(() => {
     return foldedCorners.map((p) => `${p.x},${p.y}`).join(' ');
@@ -212,19 +255,21 @@ export function FoldPreview() {
         isCurrent,
         foldedStart: applyFoldsToPoint(
           line.start,
-          project.foldSteps,
+          effectiveFoldSteps,
           project.lines,
-          transformState
+          transformState,
+          layerMultiplier
         ),
         foldedEnd: applyFoldsToPoint(
           line.end,
-          project.foldSteps,
+          effectiveFoldSteps,
           project.lines,
-          transformState
+          transformState,
+          layerMultiplier
         ),
       };
     });
-  }, [project?.lines, project?.foldSteps, transformState, highlightedLineIds]);
+  }, [project?.lines, effectiveFoldSteps, transformState, highlightedLineIds, layerMultiplier]);
 
   const currentStepLayerOffset = useMemo(() => {
     if (!currentStepData || !project) return 0;
@@ -232,9 +277,10 @@ export function FoldPreview() {
       currentStepData,
       project.lines,
       animationProgress,
-      project.paper
+      project.paper,
+      layerMultiplier
     );
-  }, [currentStepData, project?.lines, animationProgress, project?.paper]);
+  }, [currentStepData, project?.lines, animationProgress, project?.paper, layerMultiplier]);
 
   if (!project) {
     return (
@@ -266,14 +312,14 @@ export function FoldPreview() {
   };
 
   const handleNextStep = () => {
-    if (currentStep < project.foldSteps.length - 1) {
+    if (currentStep < effectiveFoldSteps.length - 1) {
       setCurrentStep(currentStep + 1);
       setAnimationProgress(0);
     }
   };
 
   const handlePlayPause = () => {
-    if (currentStep >= project.foldSteps.length - 1 && animationProgress >= 1) {
+    if (currentStep >= effectiveFoldSteps.length - 1 && animationProgress >= 1) {
       setCurrentStep(0);
       setAnimationProgress(0);
     }
@@ -288,14 +334,40 @@ export function FoldPreview() {
 
   const completedSteps = currentStep + (animationProgress >= 1 ? 1 : 0);
   const totalProgress =
-    project.foldSteps.length > 0
-      ? (currentStep + animationProgress) / project.foldSteps.length
+    effectiveFoldSteps.length > 0
+      ? (currentStep + animationProgress) / effectiveFoldSteps.length
       : 0;
+
+  const shadowOpacity = visualEffects?.shadowIntensity ?? 0.08;
+  const lineThicknessMultiplier = visualEffects?.lineThicknessMultiplier ?? 1;
+  const transparency = visualEffects?.transparency ?? 1;
+  const textureOpacity = visualEffects?.textureOpacity ?? 0.05;
+  const foldRounding = visualEffects?.foldRounding ?? 2;
+
+  const handleMaterialSelect = (configId: string | null) => {
+    if (id) {
+      setActiveMaterialConfig(id, configId);
+    }
+  };
+
+  const handleExport = () => {
+    if (!project) return;
+    const json = exportProject(project);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${project.name}-${activeMaterial?.name ?? 'preview'}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const riskConfig = activeAnalysis ? RISK_BADGE_CONFIG[activeAnalysis.overallRiskLevel] : null;
 
   return (
     <div className="min-h-screen bg-stone-50 flex flex-col">
       <div className="bg-white border-b border-stone-200">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
             <button
               onClick={() => navigate('/projects')}
@@ -308,15 +380,25 @@ export function FoldPreview() {
                 {project.name}
               </h1>
               <p className="text-sm text-stone-400">
-                折叠步骤预览 · {project.foldSteps.length} 步 · 复杂度 {project.complexity}
+                折叠步骤预览 · {effectiveFoldSteps.length} 步 · 复杂度 {project.complexity}
+                {activeMaterial && (
+                  <span className="ml-2 text-amber-600">· {activeMaterial.name}</span>
+                )}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              onClick={handleExport}
+              className="h-9 px-3 rounded-lg border border-stone-200 text-stone-600 text-xs hover:bg-stone-50 transition-colors flex items-center gap-1.5"
+            >
+              <Download className="w-4 h-4" />
+              导出
+            </button>
+            <button
               onClick={() => setShowWireframe(!showWireframe)}
-              className={`h-9 px-3 rounded-lg border text-sm transition-colors flex items-center gap-1.5 ${
+              className={`h-9 px-3 rounded-lg border text-xs transition-colors flex items-center gap-1.5 ${
                 showWireframe
                   ? 'bg-amber-50 border-amber-200 text-amber-700'
                   : 'border-stone-200 text-stone-600 hover:bg-stone-50'
@@ -326,6 +408,17 @@ export function FoldPreview() {
               线框
             </button>
             <button
+              onClick={() => setShowMaterialInfo(!showMaterialInfo)}
+              className={`h-9 px-3 rounded-lg border text-xs transition-colors flex items-center gap-1.5 ${
+                showMaterialInfo
+                  ? 'bg-amber-50 border-amber-200 text-amber-700'
+                  : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+              }`}
+            >
+              <Eye className="w-4 h-4" />
+              材质效果
+            </button>
+            <button
               onClick={() => navigate('/')}
               className="h-9 px-4 rounded-lg border border-stone-200 text-stone-600 text-sm hover:bg-stone-50 transition-colors"
             >
@@ -333,6 +426,40 @@ export function FoldPreview() {
             </button>
           </div>
         </div>
+
+        {materialConfigs.length > 0 && (
+          <div className="max-w-7xl mx-auto px-6 pb-3 flex items-center gap-2 flex-wrap border-t border-stone-100 pt-3">
+            <div className="flex items-center gap-1.5 text-xs text-stone-500 mr-2">
+              <Palette className="w-3.5 h-3.5" />
+              切换材质:
+            </div>
+            {materialConfigs.map((config: PaperMaterialConfig) => {
+              const isActive = config.id === activeMaterial?.id;
+              return (
+                <button
+                  key={config.id}
+                  onClick={() => handleMaterialSelect(config.id)}
+                  className={`h-8 px-2.5 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
+                    isActive
+                      ? 'bg-amber-100 border-amber-400 text-amber-800 shadow-sm'
+                      : 'bg-white border-stone-200 text-stone-600 hover:border-stone-300 hover:bg-stone-50'
+                  }`}
+                >
+                  <div
+                    className="w-3.5 h-3.5 rounded-full border border-stone-200"
+                    style={{ backgroundColor: config.color }}
+                  />
+                  <span className="max-w-[100px] truncate">{config.name}</span>
+                  {isActive && activeAnalysis && (
+                    <span className={`text-[9px] px-1 py-0.5 rounded-full ${riskConfig?.bg} ${riskConfig?.color}`}>
+                      {activeAnalysis.overallSuccessRate}%
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex max-w-7xl mx-auto w-full">
@@ -343,23 +470,34 @@ export function FoldPreview() {
               height={svgSize}
               viewBox={`0 0 ${svgSize} ${svgSize}`}
               className="drop-shadow-xl"
+              style={{ opacity: transparency }}
             >
               <defs>
                 <filter id="fold-shadow" x="-30%" y="-30%" width="160%" height="160%">
-                  <feDropShadow dx="0" dy="4" stdDeviation="8" floodOpacity="0.08" />
+                  <feDropShadow
+                    dx="0"
+                    dy="4"
+                    stdDeviation="8"
+                    floodOpacity={shadowOpacity}
+                  />
                 </filter>
                 <filter id="current-highlight" x="-50%" y="-50%" width="200%" height="200%">
                   <feDropShadow dx="0" dy="0" stdDeviation="4" floodColor="#f59e0b" floodOpacity="0.4" />
                 </filter>
-                <linearGradient id="paper-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="#FFFAF0" />
-                  <stop offset="50%" stopColor="#F5EFE0" />
-                  <stop offset="100%" stopColor="#EDE4D3" />
+                <linearGradient id="paper-gradient-custom" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor={visualEffects?.paperHighlight ?? '#FFFAF0'} />
+                  <stop offset="50%" stopColor={visualEffects?.paperColor ?? '#F5EFE0'} />
+                  <stop offset="100%" stopColor={visualEffects?.paperShadow ?? '#EDE4D3'} />
                 </linearGradient>
                 <linearGradient id="fold-highlight-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
                   <stop offset="0%" stopColor="#FFF8E7" />
                   <stop offset="100%" stopColor="#FDE68A" />
                 </linearGradient>
+                <filter id="texture-filter" x="0" y="0" width="100%" height="100%">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="2" seed="5" />
+                  <feColorMatrix values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.15 0" />
+                  <feComposite in2="SourceGraphic" operator="in" />
+                </filter>
               </defs>
 
               <rect
@@ -379,11 +517,24 @@ export function FoldPreview() {
               >
                 <polygon
                   points={foldedPaperPath}
-                  fill="url(#paper-gradient)"
+                  fill="url(#paper-gradient-custom)"
                   stroke="#D4C9B8"
                   strokeWidth="1.5"
                   strokeLinejoin="round"
+                  strokeLinecap="round"
+                  style={{
+                    strokeDasharray: showMaterialInfo ? undefined : undefined,
+                    strokeMiterlimit: foldRounding > 4 ? 1 : 4,
+                  }}
                 />
+
+                {showMaterialInfo && textureOpacity > 0 && (
+                  <polygon
+                    points={foldedPaperPath}
+                    filter="url(#texture-filter)"
+                    opacity={textureOpacity * 3}
+                  />
+                )}
 
                 {showWireframe &&
                   foldedLines
@@ -396,10 +547,10 @@ export function FoldPreview() {
                         x2={line.foldedEnd.x}
                         y2={line.foldedEnd.y}
                         stroke={lineColors[line.type]}
-                        strokeWidth={line.type === 'cut' ? 1.5 : 1.2}
+                        strokeWidth={(line.type === 'cut' ? 1.5 : 1.2) * lineThicknessMultiplier}
                         strokeDasharray={lineDashArrays[line.type]}
                         strokeLinecap="round"
-                        opacity={0.55}
+                        opacity={0.55 * transparency}
                       />
                     ))}
 
@@ -416,19 +567,21 @@ export function FoldPreview() {
 
                   const foldedStart = applyFoldsToPoint(
                     line.start,
-                    project.foldSteps,
+                    effectiveFoldSteps,
                     project.lines,
-                    transformState
+                    transformState,
+                    layerMultiplier
                   );
                   const foldedEnd = applyFoldsToPoint(
                     line.end,
-                    project.foldSteps,
+                    effectiveFoldSteps,
                     project.lines,
-                    transformState
+                    transformState,
+                    layerMultiplier
                   );
 
                   const glowOpacity = 0.3 + animationProgress * 0.5;
-                  const lineThickness = 2.5 + animationProgress * 1.5;
+                  const lineThickness = (2.5 + animationProgress * 1.5) * lineThicknessMultiplier;
 
                   return (
                     <g key={`highlight-${lineId}`} filter="url(#current-highlight)">
@@ -459,31 +612,16 @@ export function FoldPreview() {
                           <circle
                             cx={foldedStart.x}
                             cy={foldedStart.y}
-                            r={5 * animationProgress}
+                            r={5 * animationProgress * lineThicknessMultiplier}
                             fill={lineColors[line.type]}
                             opacity={0.6}
                           />
                           <circle
                             cx={foldedEnd.x}
                             cy={foldedEnd.y}
-                            r={5 * animationProgress}
+                            r={5 * animationProgress * lineThicknessMultiplier}
                             fill={lineColors[line.type]}
                             opacity={0.6}
-                          />
-                        </g>
-                      )}
-
-                      {animationProgress > 0.3 && (
-                        <g opacity={(animationProgress - 0.3) * 1.5}>
-                          <path
-                            d={`M ${foldedStart.x} ${foldedStart.y - 12 * sign}
-                                Q ${(foldedStart.x + foldedEnd.x) / 2} ${(foldedStart.y + foldedEnd.y) / 2 - 20 * sign * animationProgress}
-                                  ${foldedEnd.x} ${foldedEnd.y - 12 * sign}`}
-                            fill="none"
-                            stroke={lineColors[line.type]}
-                            strokeWidth="1.5"
-                            strokeDasharray="5,5"
-                            opacity="0.4"
                           />
                         </g>
                       )}
@@ -515,7 +653,7 @@ export function FoldPreview() {
 
             <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4">
               <div className="text-sm text-stone-500">
-                步骤 {currentStep + 1} / {project.foldSteps.length}
+                步骤 {currentStep + 1} / {effectiveFoldSteps.length}
               </div>
               <div className="w-48 h-1.5 bg-stone-200 rounded-full overflow-hidden">
                 <div
@@ -529,7 +667,7 @@ export function FoldPreview() {
             </div>
           </div>
 
-          <div className="mt-12 flex items-center gap-6 text-xs text-stone-400">
+          <div className="mt-12 flex items-center gap-6 text-xs text-stone-400 flex-wrap justify-center">
             <div className="flex items-center gap-1.5">
               <div className="w-3 h-0.5 rounded-full" style={{ backgroundColor: lineColors.mountain }} />
               <span>山折线 (向上)</span>
@@ -548,7 +686,40 @@ export function FoldPreview() {
                 <span>层偏移 {currentStepLayerOffset.toFixed(1)}px</span>
               </div>
             )}
+            {activeAnalysis && (
+              <div className={`flex items-center gap-1.5 ${activeAnalysis.foldDifficultyColor}`}>
+                <Target className="w-3 h-3" />
+                <span>难度 {activeAnalysis.foldDifficultyLabel}</span>
+              </div>
+            )}
           </div>
+
+          {activeAnalysis && showMaterialInfo && (
+            <div className="mt-6 flex items-center gap-3 flex-wrap justify-center max-w-2xl">
+              <div className={`px-3 py-1.5 rounded-lg border flex items-center gap-1.5 text-xs ${riskConfig?.bg} ${riskConfig?.border} ${riskConfig?.color}`}>
+                {activeAnalysis.overallRiskLevel === 'low' ? (
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                ) : (
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                )}
+                <span className="font-medium">{riskConfig?.label}</span>
+                <span className="opacity-70">· 成功率 {activeAnalysis.overallSuccessRate}%</span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg border bg-stone-50 border-stone-200 text-stone-600 flex items-center gap-1.5 text-xs">
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>{PROCESSING_METHOD_LABELS[activeMaterial!.processingMethod]}</span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg border bg-stone-50 border-stone-200 text-stone-600 flex items-center gap-1.5 text-xs">
+                <Palette className="w-3.5 h-3.5" />
+                <span>{MATERIAL_TYPE_LABELS[activeMaterial!.materialType]}</span>
+                <span className="opacity-60">· {activeMaterial!.thicknessMm}mm</span>
+              </div>
+              <div className="px-3 py-1.5 rounded-lg border bg-stone-50 border-stone-200 text-stone-600 flex items-center gap-1.5 text-xs">
+                <GaugeCustom className="w-3.5 h-3.5" />
+                <span>调整复杂度 {activeAnalysis.adjustedComplexity.toFixed(1)}</span>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="w-80 bg-white border-l border-stone-200 flex flex-col">
@@ -556,12 +727,18 @@ export function FoldPreview() {
             <div className="flex items-center justify-between mb-2">
               <h3 className="font-medium text-stone-700">当前步骤</h3>
               <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                {completedSteps} / {project.foldSteps.length} 完成
+                {completedSteps} / {effectiveFoldSteps.length} 完成
               </span>
             </div>
             <div className="text-2xl font-serif font-semibold text-stone-800">
               第 {currentStep + 1} 步
             </div>
+            {currentStepData?.description.includes('[材质优化排序]') && (
+              <div className="mt-1 text-[10px] text-amber-600 flex items-center gap-1">
+                <Sparkles className="w-3 h-3" />
+                已根据材质优化顺序
+              </div>
+            )}
           </div>
 
           {currentStepData && (
@@ -576,7 +753,7 @@ export function FoldPreview() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-stone-700 mb-1">
-                    {currentStepData.description}
+                    {currentStepData.description.replace(' [材质优化排序]', '')}
                   </p>
                   <div className="flex flex-wrap gap-2 text-xs">
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-white rounded border border-stone-200 text-stone-600">
@@ -602,9 +779,9 @@ export function FoldPreview() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {project.foldSteps.map((step, index) => (
+            {effectiveFoldSteps.map((step, index) => (
               <div
-                key={step.step}
+                key={step.step + '-' + index}
                 className={`
                   p-3 border-b border-stone-50 cursor-pointer transition-all
                   ${index === currentStep
@@ -632,16 +809,22 @@ export function FoldPreview() {
                       }
                     `}
                   >
-                    {index < currentStep ? '✓' : step.step}
+                    {index < currentStep ? '✓' : index + 1}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-stone-700 leading-relaxed">
-                      {step.description}
+                      {step.description.replace(' [材质优化排序]', '')}
                     </p>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-[10px] text-stone-400">
                         {step.lineIds.length} 条折痕
                       </span>
+                      {step.description.includes('[材质优化排序]') && (
+                        <span className="text-[10px] text-amber-500 flex items-center gap-0.5">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          材质优化
+                        </span>
+                      )}
                       {step.priority > 0 && (
                         <span className="text-[10px] text-amber-500">
                           · P{step.priority}
@@ -690,10 +873,10 @@ export function FoldPreview() {
               </button>
               <button
                 onClick={handleNextStep}
-                disabled={currentStep >= project.foldSteps.length - 1}
+                disabled={currentStep >= effectiveFoldSteps.length - 1}
                 className={`
                   w-9 h-9 rounded-full flex items-center justify-center transition-colors
-                  ${currentStep < project.foldSteps.length - 1
+                  ${currentStep < effectiveFoldSteps.length - 1
                     ? 'hover:bg-stone-100 text-stone-600'
                     : 'text-stone-300 cursor-not-allowed'
                   }
@@ -704,7 +887,7 @@ export function FoldPreview() {
               </button>
               <button
                 onClick={() => {
-                  setCurrentStep(project.foldSteps.length - 1);
+                  setCurrentStep(effectiveFoldSteps.length - 1);
                   setAnimationProgress(1);
                   setIsPlaying(false);
                 }}
@@ -734,5 +917,22 @@ export function FoldPreview() {
         </div>
       </div>
     </div>
+  );
+}
+
+function GaugeCustom({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 14l4-4" />
+      <path d="M3.34 19a10 10 0 1 1 17.32 0" />
+    </svg>
   );
 }
