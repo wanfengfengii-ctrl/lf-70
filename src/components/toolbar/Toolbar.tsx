@@ -16,7 +16,6 @@ import {
 } from 'lucide-react';
 import { useCanvasStore } from '@/store/canvasStore';
 import type { ToolType } from '@/types';
-import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { SaveDialog } from './SaveDialog';
 
@@ -35,7 +34,6 @@ const tools: { type: ToolType; icon: typeof MousePointer2; label: string; color:
 ];
 
 export function Toolbar({ onPreview, onOpenProjects }: ToolbarProps) {
-  const navigate = useNavigate();
   const {
     currentTool,
     setCurrentTool,

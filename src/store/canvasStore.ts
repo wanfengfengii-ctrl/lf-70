@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { LineSegment, ToolType, Point, Paper, LineType } from '@/types';
+import type { LineSegment, ToolType, Point, Paper, LineType, FoldConstraint } from '@/types';
 import {
   generateId,
   snapToGrid,
@@ -53,6 +53,9 @@ interface CanvasStore {
   setPaper: (paper: Paper) => void;
   getSnapPoint: (point: Point) => Point;
   loadLines: (lines: LineSegment[]) => void;
+  updateLineConstraint: (lineId: string, constraint: Partial<FoldConstraint>) => void;
+  addLinkage: (lineId: string, targetId: string) => void;
+  removeLinkage: (lineId: string, targetId: string) => void;
 }
 
 const defaultPaper: Paper = {
@@ -192,7 +195,6 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       const newLines = state.lines.filter((l) => l.type !== 'axis');
 
       if (state.symmetricMode && oldAxis) {
-        const symLines = state.lines.filter((l) => l.symmetried);
         const filteredNew = newLines.filter((l) => !l.symmetried);
         
         const newSymLines: LineSegment[] = [];
@@ -253,7 +255,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       return;
     }
 
-    let newLines = [...state.lines, newLine];
+    const newLines = [...state.lines, newLine];
 
     if (state.symmetricMode && state.axisLine && lineType !== 'axis') {
       const symLine = reflectSegmentOverLine(newLine, state.axisLine);
@@ -430,6 +432,69 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
       orderCounter: lines.length,
       axisLine: axis,
       symmetricMode: axis ? state.symmetricMode : false,
+      history: {
+        past: [...s.history.past, state.lines],
+        future: [],
+      },
+    }));
+  },
+
+  updateLineConstraint: (lineId, constraint) => {
+    const state = get();
+    const newLines = state.lines.map((l) => {
+      if (l.id !== lineId) return l;
+      return {
+        ...l,
+        foldAngle: constraint.foldAngle !== undefined ? constraint.foldAngle : l.foldAngle,
+        priority: constraint.priority !== undefined ? constraint.priority : l.priority,
+        linkageIds: constraint.linkageIds !== undefined ? constraint.linkageIds : l.linkageIds,
+      };
+    });
+    set((s) => ({
+      lines: newLines,
+      history: {
+        past: [...s.history.past, state.lines],
+        future: [],
+      },
+    }));
+  },
+
+  addLinkage: (lineId, targetId) => {
+    const state = get();
+    const line = state.lines.find((l) => l.id === lineId);
+    if (!line) return;
+
+    const currentLinkage = line.linkageIds ?? [];
+    if (currentLinkage.includes(targetId)) return;
+
+    const newLinkage = [...currentLinkage, targetId];
+    const newLines = state.lines.map((l) => {
+      if (l.id !== lineId) return l;
+      return { ...l, linkageIds: newLinkage };
+    });
+
+    set((s) => ({
+      lines: newLines,
+      history: {
+        past: [...s.history.past, state.lines],
+        future: [],
+      },
+    }));
+  },
+
+  removeLinkage: (lineId, targetId) => {
+    const state = get();
+    const line = state.lines.find((l) => l.id === lineId);
+    if (!line || !line.linkageIds) return;
+
+    const newLinkage = line.linkageIds.filter((id) => id !== targetId);
+    const newLines = state.lines.map((l) => {
+      if (l.id !== lineId) return l;
+      return { ...l, linkageIds: newLinkage };
+    });
+
+    set((s) => ({
+      lines: newLines,
       history: {
         past: [...s.history.past, state.lines],
         future: [],

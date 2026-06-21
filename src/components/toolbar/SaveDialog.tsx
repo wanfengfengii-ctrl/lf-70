@@ -12,14 +12,12 @@ interface SaveDialogProps {
 
 export function SaveDialog({ onClose, lines, paper }: SaveDialogProps) {
   const [name, setName] = useState('');
-  const { saveCurrentState, currentProjectId, getProject } = useProjectStore();
+  const { saveCurrentState } = useProjectStore();
   const { loadLines, setPaper } = useCanvasStore();
-
-  const currentProject = currentProjectId ? getProject(currentProjectId) : null;
 
   const handleSave = () => {
     if (!name.trim()) return;
-    const project = saveCurrentState(name.trim(), paper, lines);
+    saveCurrentState(name.trim(), paper, lines);
     loadLines(lines);
     setPaper(paper);
     onClose();

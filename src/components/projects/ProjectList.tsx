@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import { ProjectCard } from './ProjectCard';
-import { Search, Plus, SortAsc, ArrowLeft, Upload } from 'lucide-react';
+import { Search, Plus, SortAsc, ArrowLeft, Upload, GitCompare, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { Project } from '@/types';
 
@@ -14,6 +14,8 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
   const { projects, deleteProject, exportProject, importProject } = useProjectStore();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'complexity'>('date');
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedForCompare, setSelectedForCompare] = useState<string[]>([]);
 
   const filteredProjects = useMemo(() => {
     let result = [...projects];
@@ -74,6 +76,10 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
   };
 
   const handleOpen = (id: string) => {
+    if (compareMode) {
+      handleToggleCompare(id);
+      return;
+    }
     if (onLoadProject) {
       const project = projects.find((p) => p.id === id);
       if (project) {
@@ -85,8 +91,88 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
     }
   };
 
+  const handleToggleCompare = (id: string) => {
+    setSelectedForCompare((prev) => {
+      if (prev.includes(id)) {
+        return prev.filter((i) => i !== id);
+      }
+      if (prev.length >= 2) {
+        return [prev[1], id];
+      }
+      return [...prev, id];
+    });
+  };
+
+  const handleStartCompare = () => {
+    if (selectedForCompare.length === 2) {
+      navigate(`/compare/${selectedForCompare[0]}/${selectedForCompare[1]}`);
+    }
+  };
+
+  const handleExitCompareMode = () => {
+    setCompareMode(false);
+    setSelectedForCompare([]);
+  };
+
+  const handleSelectAllForCompare = () => {
+    if (filteredProjects.length >= 2) {
+      setSelectedForCompare([filteredProjects[0].id, filteredProjects[1].id]);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-stone-50">
+      {compareMode && (
+        <div className="bg-amber-50 border-b border-amber-200">
+          <div className="max-w-6xl mx-auto px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center">
+                  <GitCompare className="w-4 h-4 text-amber-700" />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-amber-800">
+                    方案对比模式
+                  </div>
+                  <div className="text-xs text-amber-600">
+                    已选择 {selectedForCompare.length}/2 个方案进行对比
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedForCompare.length === 0 && (
+                  <button
+                    onClick={handleSelectAllForCompare}
+                    className="h-8 px-3 rounded-lg bg-white text-amber-700 text-xs border border-amber-200 hover:bg-amber-100 transition-colors"
+                  >
+                    快速选择前两个
+                  </button>
+                )}
+                <button
+                  onClick={handleExitCompareMode}
+                  className="h-8 w-8 rounded-lg bg-white text-stone-500 border border-stone-200 hover:bg-stone-50 flex items-center justify-center transition-colors"
+                  title="退出对比模式"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleStartCompare}
+                  disabled={selectedForCompare.length !== 2}
+                  className={`h-8 px-4 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    selectedForCompare.length === 2
+                      ? 'bg-amber-500 text-white hover:bg-amber-600 shadow-sm shadow-amber-500/20'
+                      : 'bg-stone-100 text-stone-400 cursor-not-allowed'
+                  }`}
+                >
+                  <GitCompare className="w-3.5 h-3.5" />
+                  开始对比
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border-b border-stone-200">
         <div className="max-w-6xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
@@ -104,6 +190,20 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
             </div>
 
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setCompareMode(!compareMode);
+                  setSelectedForCompare([]);
+                }}
+                className={`h-9 px-3 rounded-lg border text-sm flex items-center gap-2 transition-colors ${
+                  compareMode
+                    ? 'bg-amber-50 border-amber-300 text-amber-700'
+                    : 'border-stone-200 text-stone-600 hover:bg-stone-50'
+                }`}
+              >
+                <GitCompare className="w-4 h-4" />
+                方案对比
+              </button>
               <label className="h-9 px-3 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 flex items-center gap-2 text-sm cursor-pointer transition-colors">
                 <Upload className="w-4 h-4" />
                 导入
@@ -171,16 +271,43 @@ export function ProjectList({ onLoadProject }: ProjectListProps) {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProjects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                onOpen={handleOpen}
-                onPreview={(id) => navigate(`/preview/${id}`)}
-                onDelete={handleDelete}
-                onExport={handleExport}
-              />
-            ))}
+            {filteredProjects.map((project) => {
+              const isSelectedForCompare = selectedForCompare.includes(project.id);
+              const compareIndex = selectedForCompare.indexOf(project.id);
+              return (
+                <div
+                  key={project.id}
+                  className={`relative transition-all duration-200 ${
+                    compareMode && isSelectedForCompare ? 'ring-2 ring-amber-400 rounded-xl' : ''
+                  }`}
+                >
+                  {compareMode && (
+                    <div
+                      className={`absolute -top-2 -left-2 z-10 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shadow-md cursor-pointer select-none ${
+                        isSelectedForCompare
+                          ? compareIndex === 0
+                            ? 'bg-blue-500 text-white'
+                            : 'bg-purple-500 text-white'
+                          : 'bg-stone-200 text-stone-400 hover:bg-stone-300'
+                      }`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleCompare(project.id);
+                      }}
+                    >
+                      {isSelectedForCompare ? compareIndex + 1 : '+'}
+                    </div>
+                  )}
+                  <ProjectCard
+                    project={project}
+                    onOpen={handleOpen}
+                    onPreview={(id) => navigate(`/preview/${id}`)}
+                    onDelete={handleDelete}
+                    onExport={handleExport}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

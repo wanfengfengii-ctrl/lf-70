@@ -1,8 +1,8 @@
 import { create } from 'zustand';
-import type { Project, LineSegment, Paper } from '@/types';
+import type { Project, LineSegment, Paper, ProjectComparison } from '@/types';
 import { generateId } from '@/utils/geometry';
 import { calculateComplexity, generateFoldSteps } from '@/utils/complexity';
-import { validateLines, isFoldable } from '@/utils/validation';
+import { validateLines, isFoldable, countConflicts } from '@/utils/validation';
 
 const STORAGE_KEY = 'origami-projects';
 
@@ -274,6 +274,8 @@ interface ProjectStore {
   saveCurrentState: (name: string, paper: Paper, lines: LineSegment[]) => Project;
   exportProject: (project: Project) => string;
   importProject: (json: string) => Project | null;
+  compareProjects: (idA: string, idB: string) => ProjectComparison | null;
+  getComparisonStats: (project: Project) => ProjectComparison['projectA'];
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -319,6 +321,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       isFoldable: isFoldable(validationErrors),
       complexity: calculateComplexity(lines),
       foldSteps: generateFoldSteps(lines),
+      conflictCount: countConflicts(validationErrors),
     };
 
     set((state) => {
@@ -371,6 +374,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           isFoldable: isFoldable(validationErrors),
           complexity: calculateComplexity(lines),
           foldSteps: generateFoldSteps(lines),
+          conflictCount: countConflicts(validationErrors),
         });
         return { ...project, name, paper, lines: [...lines] };
       }
@@ -381,19 +385,32 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   exportProject: (project) => {
     const exportData = {
-      version: '1.0',
+      version: '2.0',
       exportedAt: new Date().toISOString(),
       project: {
         ...project,
         lines: project.lines
           .sort((a, b) => a.order - b.order)
-          .map(({ id, type, start, end, order }) => ({
+          .map(({ id, type, start, end, order, foldAngle, priority, linkageIds, symmetried, originalId }) => ({
             id,
             type,
             start,
             end,
             order,
+            ...(foldAngle !== undefined ? { foldAngle } : {}),
+            ...(priority !== undefined ? { priority } : {}),
+            ...(linkageIds && linkageIds.length > 0 ? { linkageIds } : {}),
+            ...(symmetried ? { symmetried } : {}),
+            ...(originalId ? { originalId } : {}),
           })),
+        foldSteps: project.foldSteps.map((step) => ({
+          step: step.step,
+          description: step.description,
+          lineIds: step.lineIds,
+          foldAngle: step.foldAngle,
+          priority: step.priority,
+          linkedLineIds: step.linkedLineIds,
+        })),
       },
     };
     return JSON.stringify(exportData, null, 2);
@@ -423,5 +440,31 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     } catch {
       return null;
     }
+  },
+
+  getComparisonStats: (project) => {
+    const mountainCount = project.lines.filter((l) => l.type === 'mountain').length;
+    const valleyCount = project.lines.filter((l) => l.type === 'valley').length;
+    return {
+      id: project.id,
+      name: project.name,
+      complexity: project.complexity,
+      stepCount: project.foldSteps.length,
+      conflictCount: project.conflictCount ?? 0,
+      lineCount: project.lines.length,
+      mountainCount,
+      valleyCount,
+    };
+  },
+
+  compareProjects: (idA, idB) => {
+    const projectA = get().getProject(idA);
+    const projectB = get().getProject(idB);
+    if (!projectA || !projectB) return null;
+
+    return {
+      projectA: get().getComparisonStats(projectA),
+      projectB: get().getComparisonStats(projectB),
+    };
   },
 }));

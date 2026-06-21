@@ -14,8 +14,17 @@ export interface LineSegment {
   end: Point;
   visible: boolean;
   order: number;
+  foldAngle?: number;
+  priority?: number;
+  linkageIds?: string[];
   symmetried?: boolean;
   originalId?: string;
+}
+
+export interface FoldConstraint {
+  foldAngle?: number;
+  priority?: number;
+  linkageIds?: string[];
 }
 
 export interface Paper {
@@ -30,7 +39,11 @@ export type ValidationErrorType =
   | 'unclosed' 
   | 'support_cut' 
   | 'symmetry'
-  | 'duplicate';
+  | 'duplicate'
+  | 'fold_order_conflict'
+  | 'circular_dependency'
+  | 'angle_out_of_bounds'
+  | 'layer_penetration';
 
 export interface ValidationError {
   id: string;
@@ -45,6 +58,8 @@ export interface FoldStep {
   description: string;
   lineIds: string[];
   foldAngle: number;
+  priority?: number;
+  linkedLineIds: string[];
 }
 
 export interface Project {
@@ -57,7 +72,24 @@ export interface Project {
   isFoldable: boolean;
   complexity: number;
   foldSteps: FoldStep[];
+  conflictCount?: number;
   thumbnail?: string;
+}
+
+export interface ProjectComparisonStats {
+  id: string;
+  name: string;
+  complexity: number;
+  stepCount: number;
+  conflictCount: number;
+  lineCount: number;
+  mountainCount: number;
+  valleyCount: number;
+}
+
+export interface ProjectComparison {
+  projectA: ProjectComparisonStats;
+  projectB: ProjectComparisonStats;
 }
 
 export interface CanvasState {

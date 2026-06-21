@@ -24,6 +24,10 @@ const errorTypeLabels: Record<string, string> = {
   support_cut: '剪口冲突',
   symmetry: '对称校验',
   duplicate: '重复折痕',
+  fold_order_conflict: '折叠顺序冲突',
+  circular_dependency: '循环依赖',
+  angle_out_of_bounds: '角度越界',
+  layer_penetration: '层级穿插',
 };
 
 export function ValidationPanel({
