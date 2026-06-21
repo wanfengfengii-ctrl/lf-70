@@ -205,13 +205,15 @@ export type TrialOptimizationTarget =
   | 'highest_success'
   | 'lowest_risk'
   | 'lowest_cost'
-  | 'best_precision';
+  | 'best_precision'
+  | 'best_for_complex';
 
 export const TRIAL_OPTIMIZATION_TARGET_LABELS: Record<TrialOptimizationTarget, string> = {
   highest_success: '成功率最高',
   lowest_risk: '风险最低',
   lowest_cost: '成本最低',
   best_precision: '最适合精细折叠',
+  best_for_complex: '适合复杂结构',
 };
 
 export interface ParameterRange {

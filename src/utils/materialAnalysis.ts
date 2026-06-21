@@ -807,11 +807,15 @@ export function calculateOverallScore(
   trial: Omit<TrialResult, 'overallScore' | 'rank'>,
   target: TrialOptimizationTarget
 ): number {
-  const { analysis, costEstimate, precisionScore, foldabilityScore } = trial;
+  const { analysis, costEstimate, precisionScore, foldabilityScore, materialConfig } = trial;
   
   const riskScore = getRiskScore(analysis.overallRiskLevel);
   const successRate = analysis.overallSuccessRate;
   const costScore = Math.max(0, 100 - costEstimate * 8);
+  
+  const toughnessScore = materialConfig.toughness;
+  const thicknessScore = materialConfig.thicknessMm >= 0.12 && materialConfig.thicknessMm <= 0.25 ? 100 :
+                          materialConfig.thicknessMm >= 0.1 && materialConfig.thicknessMm <= 0.3 ? 70 : 40;
   
   switch (target) {
     case 'highest_success':
@@ -837,6 +841,13 @@ export function calculateOverallScore(
         precisionScore * 0.5 +
         successRate * 0.25 +
         riskScore * 0.25
+      );
+    case 'best_for_complex':
+      return Math.round(
+        toughnessScore * 0.35 +
+        thicknessScore * 0.25 +
+        successRate * 0.2 +
+        riskScore * 0.2
       );
     default:
       return Math.round(

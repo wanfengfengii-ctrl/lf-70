@@ -11,6 +11,7 @@ import type {
   BatchTrialResult,
   TrialResult,
   TrialOptimizationTarget,
+  PaperMaterialType,
 } from '@/types';
 import { generateId } from '@/utils/geometry';
 import { calculateComplexity, generateFoldSteps, calculateSuccessRate } from '@/utils/complexity';
@@ -23,9 +24,13 @@ import {
   runBatchTrial,
   createDefaultTrialConfig,
   exportTrialComparison,
+  MATERIAL_PRESETS,
+  calculateOverallScore,
 } from '@/utils/materialAnalysis';
 
 const STORAGE_KEY = 'origami-projects';
+
+const MATERIAL_PRESETS_BY_TYPE: Record<PaperMaterialType, Omit<PaperMaterialConfig, 'id' | 'name' | 'createdAt' | 'updatedAt'>> = MATERIAL_PRESETS;
 
 function createSampleProjects(): Project[] {
   const now = Date.now();
@@ -827,7 +832,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   applyPresetToMaterial: (projectId, configId, presetType) => {
-    const preset = MATERIAL_PRESETS_OR_NEEDED[presetType];
+    const preset = MATERIAL_PRESETS_BY_TYPE[presetType];
     if (!preset) return;
     const now = Date.now();
     get().updateMaterialConfig(projectId, configId, {
@@ -951,7 +956,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     if (!existingResult) return null;
 
     const reoptimizedTrials = existingResult.trials.map(trial => {
-      const trialWithoutRank = {
+      const trialWithoutRank: Omit<TrialResult, 'overallScore' | 'rank'> = {
         id: trial.id,
         trialConfigId: trial.trialConfigId,
         materialConfig: trial.materialConfig,
@@ -959,55 +964,9 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         foldabilityScore: trial.foldabilityScore,
         costEstimate: trial.costEstimate,
         precisionScore: trial.precisionScore,
+        isRecommended: trial.isRecommended,
       };
-      const overallScore = (() => {
-        const { analysis, costEstimate, precisionScore, foldabilityScore } = trial;
-        const getRiskScore = (level: string) => {
-          switch (level) {
-            case 'low': return 100;
-            case 'medium': return 70;
-            case 'high': return 40;
-            case 'critical': return 10;
-            default: return 50;
-          }
-        };
-        const riskScore = getRiskScore(analysis.overallRiskLevel);
-        const successRate = analysis.overallSuccessRate;
-        const costScore = Math.max(0, 100 - costEstimate * 8);
-
-        switch (newTarget) {
-          case 'highest_success':
-            return Math.round(
-              successRate * 0.5 +
-              foldabilityScore * 0.3 +
-              riskScore * 0.2
-            );
-          case 'lowest_risk':
-            return Math.round(
-              riskScore * 0.5 +
-              successRate * 0.25 +
-              (100 - analysis.adjustedComplexity) * 0.25
-            );
-          case 'lowest_cost':
-            return Math.round(
-              costScore * 0.5 +
-              successRate * 0.25 +
-              riskScore * 0.25
-            );
-          case 'best_precision':
-            return Math.round(
-              precisionScore * 0.5 +
-              successRate * 0.25 +
-              riskScore * 0.25
-            );
-          default:
-            return Math.round(
-              successRate * 0.4 +
-              riskScore * 0.3 +
-              foldabilityScore * 0.3
-            );
-        }
-      })();
+      const overallScore = calculateOverallScore(trialWithoutRank, newTarget);
       return { ...trial, overallScore };
     });
 
@@ -1059,105 +1018,3 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     );
   },
 }));
-
-const MATERIAL_PRESETS_OR_NEEDED: Record<string, Omit<PaperMaterialConfig, 'id' | 'name' | 'createdAt' | 'updatedAt'>> = {
-  kraft: {
-    materialType: 'kraft',
-    thicknessMm: 0.18,
-    toughness: 75,
-    textureDirection: 'grain_long',
-    processingMethod: 'crease_fold',
-    color: '#D4A574',
-    customNotes: '标准牛皮纸，韧性好，适合基础折纸',
-  },
-  washi: {
-    materialType: 'washi',
-    thicknessMm: 0.12,
-    toughness: 85,
-    textureDirection: 'grain_long',
-    processingMethod: 'wet_fold',
-    color: '#F5E6D3',
-    customNotes: '和纸，轻薄有韧性，适合精细折叠',
-  },
-  tant: {
-    materialType: 'tant',
-    thicknessMm: 0.15,
-    toughness: 80,
-    textureDirection: 'bidirectional',
-    processingMethod: 'score_fold',
-    color: '#E8D5C4',
-    customNotes: 'TANT纸，两面双色，适合复杂模型',
-  },
-  lokta: {
-    materialType: 'lokta',
-    thicknessMm: 0.22,
-    toughness: 90,
-    textureDirection: 'grain_short',
-    processingMethod: 'crease_fold',
-    color: '#C4A77D',
-    customNotes: '尼泊尔洛卡塔，天然纤维，高韧性',
-  },
-  foil: {
-    materialType: 'foil',
-    thicknessMm: 0.10,
-    toughness: 50,
-    textureDirection: 'bidirectional',
-    processingMethod: 'dry_fold',
-    color: '#D4D4D4',
-    customNotes: '铝箔纸，易产生折痕记忆，但易撕裂',
-  },
-  tissue_foil: {
-    materialType: 'tissue_foil',
-    thicknessMm: 0.08,
-    toughness: 70,
-    textureDirection: 'bidirectional',
-    processingMethod: 'mc_fold',
-    color: '#C0C0C0',
-    customNotes: '棉纸铝箔复合，适合复杂微型折叠',
-  },
-  elephant_hide: {
-    materialType: 'elephant_hide',
-    thicknessMm: 0.25,
-    toughness: 95,
-    textureDirection: 'bidirectional',
-    processingMethod: 'wet_fold',
-    color: '#B8956A',
-    customNotes: '象皮纸，极高韧性，适合超复杂模型',
-  },
-  newsprint: {
-    materialType: 'newsprint',
-    thicknessMm: 0.07,
-    toughness: 35,
-    textureDirection: 'grain_long',
-    processingMethod: 'dry_fold',
-    color: '#EDE8D8',
-    customNotes: '新闻纸，练习用，低韧性易破',
-  },
-  cardstock: {
-    materialType: 'cardstock',
-    thicknessMm: 0.35,
-    toughness: 60,
-    textureDirection: 'grain_short',
-    processingMethod: 'score_fold',
-    color: '#F0EAE0',
-    customNotes: '卡片纸，厚度大，需压痕处理',
-  },
-  vellum: {
-    materialType: 'vellum',
-    thicknessMm: 0.09,
-    toughness: 40,
-    textureDirection: 'grain_long',
-    processingMethod: 'dry_fold',
-    color: '#FFF8F0',
-    customNotes: '透明薄纸，半透明效果，精细操作',
-  },
-  custom: {
-    materialType: 'custom',
-    thicknessMm: 0.15,
-    toughness: 60,
-    textureDirection: 'grain_long',
-    processingMethod: 'crease_fold',
-    color: '#F5EFE0',
-    customNotes: '自定义材质，可调整所有参数',
-  },
-};

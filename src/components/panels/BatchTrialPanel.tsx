@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useProjectStore } from '@/store/projectStore';
 import type {
   PaperMaterialType,
@@ -65,6 +65,7 @@ const TARGET_CONFIG: Record<TrialOptimizationTarget, { icon: any; color: string;
   lowest_risk: { icon: ShieldCheck, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   lowest_cost: { icon: DollarSign, color: 'text-blue-600', bg: 'bg-blue-50' },
   best_precision: { icon: Crosshair, color: 'text-purple-600', bg: 'bg-purple-50' },
+  best_for_complex: { icon: Layers, color: 'text-rose-600', bg: 'bg-rose-50' },
 };
 
 export function BatchTrialPanel({ projectId }: BatchTrialPanelProps) {
@@ -497,14 +498,12 @@ export function BatchTrialPanel({ projectId }: BatchTrialPanelProps) {
                 return (
                   <div
                     key={result.id}
-                    className={`rounded-lg border transition-all ${
+                    className={`rounded-lg border transition-all cursor-pointer ${
                       isSelected ? 'border-indigo-400 bg-indigo-50/40' : 'border-stone-200 bg-white hover:border-stone-300'
                     }`}
+                    onClick={() => setSelectedTrialId(result.id)}
                   >
-                    <button
-                      onClick={() => setSelectedTrialId(result.id)}
-                      className="w-full p-2.5 text-left"
-                    >
+                    <div className="w-full p-2.5">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <div className={`p-1.5 rounded ${targetCfg.bg}`}>
@@ -532,7 +531,7 @@ export function BatchTrialPanel({ projectId }: BatchTrialPanelProps) {
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
-                    </button>
+                    </div>
                   </div>
                 );
               })}
@@ -841,9 +840,8 @@ function TrialTable({
             const riskCfg = RISK_CONFIG[trial.analysis.overallRiskLevel];
             const isExpanded = expandedTrialIds.has(trial.id);
             return (
-              <>
+              <React.Fragment key={trial.id}>
                 <tr
-                  key={trial.id}
                   className={`border-b border-stone-100 hover:bg-stone-50 ${
                     trial.isRecommended ? 'bg-amber-50/50' : ''
                   }`}
@@ -965,7 +963,7 @@ function TrialTable({
                     </td>
                   </tr>
                 )}
-              </>
+              </React.Fragment>
             );
           })}
         </tbody>
