@@ -142,12 +142,18 @@ export function PaperMaterialPanel({ projectId }: PaperMaterialPanelProps) {
     setActiveMaterialConfig(projectId, configId);
   };
 
+  const MAX_COMPARE_COUNT = 4;
+
   const toggleCompare = (configId: string) => {
-    setCompareConfigIds((prev) =>
-      prev.includes(configId)
-        ? prev.filter((id) => id !== configId)
-        : [...prev, configId]
-    );
+    setCompareConfigIds((prev) => {
+      if (prev.includes(configId)) {
+        return prev.filter((id) => id !== configId);
+      }
+      if (prev.length >= MAX_COMPARE_COUNT) {
+        return prev;
+      }
+      return [...prev, configId];
+    });
   };
 
   const comparisonResults = useMemo(() => {
@@ -179,7 +185,7 @@ export function PaperMaterialPanel({ projectId }: PaperMaterialPanelProps) {
           >
             <span className="flex items-center gap-1">
               <Shuffle className="w-3 h-3" />
-              对比
+              对比{compareMode && compareConfigIds.length > 0 ? ` (${compareConfigIds.length}/${MAX_COMPARE_COUNT})` : ''}
             </span>
           </button>
         </div>
@@ -252,7 +258,8 @@ export function PaperMaterialPanel({ projectId }: PaperMaterialPanelProps) {
                         type="checkbox"
                         checked={inCompare}
                         onChange={() => toggleCompare(config.id)}
-                        className="mt-1"
+                        disabled={!inCompare && compareConfigIds.length >= MAX_COMPARE_COUNT}
+                        className="mt-1 disabled:opacity-30"
                       />
                     )}
                     <button
@@ -291,9 +298,13 @@ export function PaperMaterialPanel({ projectId }: PaperMaterialPanelProps) {
                       </button>
                       <button
                         onClick={() => deleteMaterialConfig(projectId, config.id)}
-                        className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-600"
-                        title="删除配置"
-                        disabled={materialConfigs.length <= 1}
+                        className="p-1 rounded hover:bg-red-50 text-stone-400 hover:text-red-600 disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-stone-400"
+                        title={
+                          compareMode && compareConfigIds.includes(config.id)
+                            ? '请先取消对比再删除'
+                            : '删除配置'
+                        }
+                        disabled={materialConfigs.length <= 1 || (compareMode && compareConfigIds.includes(config.id))}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

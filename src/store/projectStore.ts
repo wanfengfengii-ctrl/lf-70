@@ -547,14 +547,27 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       if (!data.project || !data.project.lines) return null;
 
       const importedConfigs = data.project.materialConfigs ?? [];
+      const idMapping = new Map<string, string>();
       const materialConfigs: PaperMaterialConfig[] = importedConfigs.length > 0
-        ? importedConfigs.map((c: any) => ({
-            ...c,
-            id: generateId(),
-            createdAt: c.createdAt ?? Date.now(),
-            updatedAt: c.updatedAt ?? Date.now(),
-          }))
+        ? importedConfigs.map((c: any) => {
+            const newId = generateId();
+            idMapping.set(c.id, newId);
+            return {
+              ...c,
+              id: newId,
+              createdAt: c.createdAt ?? Date.now(),
+              updatedAt: c.updatedAt ?? Date.now(),
+            };
+          })
         : [];
+
+      let activeMaterialConfigId: string | null = null;
+      if (data.project.activeMaterialConfigId) {
+        activeMaterialConfigId = idMapping.get(data.project.activeMaterialConfigId) ?? null;
+      }
+      if (!activeMaterialConfigId && materialConfigs.length > 0) {
+        activeMaterialConfigId = materialConfigs[0].id;
+      }
 
       const project: Project = {
         ...data.project,
@@ -566,9 +579,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           visible: true,
         })),
         materialConfigs,
-        activeMaterialConfigId: materialConfigs.length > 0
-          ? materialConfigs[0].id
-          : null,
+        activeMaterialConfigId,
       };
 
       set((state) => ({
@@ -608,6 +619,21 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
           );
           adjustedComplexity = analysis.adjustedComplexity;
           riskLevel = analysis.overallRiskLevel;
+          return {
+            id: project.id,
+            name: project.name,
+            complexity: project.complexity,
+            stepCount: project.foldSteps.length,
+            conflictCount,
+            lineCount: project.lines.length,
+            mountainCount,
+            valleyCount,
+            successRate: analysis.overallSuccessRate,
+            materialConfigId: project.activeMaterialConfigId ?? undefined,
+            materialName,
+            adjustedComplexity,
+            riskLevel,
+          };
         } catch {
           // ignore analysis errors
         }
