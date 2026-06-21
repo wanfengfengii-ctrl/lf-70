@@ -169,6 +169,7 @@ export interface Project {
   thumbnail?: string;
   activeMaterialConfigId?: string | null;
   materialConfigs?: PaperMaterialConfig[];
+  batchTrialResults?: BatchTrialResult[];
 }
 
 export interface ProjectComparisonStats {
@@ -198,4 +199,94 @@ export interface CanvasState {
   paper: Paper;
   showGrid: boolean;
   gridSize: number;
+}
+
+export type TrialOptimizationTarget =
+  | 'highest_success'
+  | 'lowest_risk'
+  | 'lowest_cost'
+  | 'best_precision';
+
+export const TRIAL_OPTIMIZATION_TARGET_LABELS: Record<TrialOptimizationTarget, string> = {
+  highest_success: '成功率最高',
+  lowest_risk: '风险最低',
+  lowest_cost: '成本最低',
+  best_precision: '最适合精细折叠',
+};
+
+export interface ParameterRange {
+  min: number;
+  max: number;
+  step: number;
+}
+
+export interface BatchTrialConfig {
+  id: string;
+  name: string;
+  materialTypes: PaperMaterialType[];
+  thicknessRange: ParameterRange;
+  toughnessRange: ParameterRange;
+  textureDirections: TextureDirection[];
+  processingMethods: ProcessingMethod[];
+  maxTrialCount: number;
+  createdAt: number;
+}
+
+export interface TrialResult {
+  id: string;
+  trialConfigId: string;
+  materialConfig: PaperMaterialConfig;
+  analysis: MaterialAnalysisResult;
+  foldabilityScore: number;
+  costEstimate: number;
+  precisionScore: number;
+  overallScore: number;
+  rank?: number;
+  isRecommended?: boolean;
+}
+
+export interface BatchTrialResult {
+  id: string;
+  projectId: string;
+  config: BatchTrialConfig;
+  trials: TrialResult[];
+  createdAt: number;
+  completedAt?: number;
+  optimizationTarget: TrialOptimizationTarget;
+  recommendedTrialId?: string;
+}
+
+export interface MaterialCostEstimate {
+  baseCost: number;
+  thicknessMultiplier: number;
+  toughnessMultiplier: number;
+  processingCost: number;
+  totalCost: number;
+  costLevel: 'low' | 'medium' | 'high' | 'very_high';
+}
+
+export interface TrialComparisonExport {
+  projectName: string;
+  exportedAt: string;
+  optimizationTarget: string;
+  baseComplexity: number;
+  trials: Array<{
+    rank: number;
+    materialName: string;
+    materialType: string;
+    thicknessMm: number;
+    toughness: number;
+    textureDirection: string;
+    processingMethod: string;
+    foldabilityScore: number;
+    adjustedComplexity: number;
+    foldDifficulty: number;
+    successRate: number;
+    riskLevel: string;
+    riskCount: number;
+    costEstimate: number;
+    precisionScore: number;
+    overallScore: number;
+    isRecommended: boolean;
+  }>;
 }

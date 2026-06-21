@@ -4,6 +4,7 @@ import { LayerPanel } from '@/components/panels/LayerPanel';
 import { ValidationPanel } from '@/components/panels/ValidationPanel';
 import { ConstraintPanel } from '@/components/panels/ConstraintPanel';
 import { PaperMaterialPanel } from '@/components/panels/PaperMaterialPanel';
+import { BatchTrialPanel } from '@/components/panels/BatchTrialPanel';
 import { DesignCanvas } from '@/components/canvas/DesignCanvas';
 import { StatusBar } from '@/components/StatusBar';
 import { useNavigate } from 'react-router-dom';
@@ -12,9 +13,9 @@ import { useProjectStore } from '@/store/projectStore';
 import type { ValidationError, Project } from '@/types';
 import { isFoldable as checkFoldable } from '@/utils/validation';
 import { calculateComplexity, getComplexityLevel, getComplexityColor } from '@/utils/complexity';
-import { AlertCircle, Settings, Layers } from 'lucide-react';
+import { AlertCircle, Settings, Layers, FlaskConical } from 'lucide-react';
 
-type RightPanelTab = 'validation' | 'constraint' | 'material';
+type RightPanelTab = 'validation' | 'constraint' | 'material' | 'batchTrial';
 
 export function DesignPage() {
   const navigate = useNavigate();
@@ -133,6 +134,23 @@ export function DesignPage() {
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-amber-500" />
               )}
             </button>
+            <button
+              onClick={() => {
+                saveCurrentProject();
+                setRightPanelTab('batchTrial');
+              }}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-medium transition-colors relative ${
+                rightPanelTab === 'batchTrial'
+                  ? 'bg-white text-indigo-700'
+                  : 'text-stone-500 hover:text-stone-700 hover:bg-white/50'
+              }`}
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              <span>批量试验</span>
+              {rightPanelTab === 'batchTrial' && (
+                <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500" />
+              )}
+            </button>
           </div>
 
           <div className="flex-1 overflow-hidden">
@@ -146,8 +164,10 @@ export function DesignPage() {
               />
             ) : rightPanelTab === 'constraint' ? (
               <ConstraintPanel />
-            ) : currentProjectId ? (
+            ) : rightPanelTab === 'material' && currentProjectId ? (
               <PaperMaterialPanel projectId={currentProjectId} />
+            ) : rightPanelTab === 'batchTrial' && currentProjectId ? (
+              <BatchTrialPanel projectId={currentProjectId} />
             ) : (
               <div className="h-full flex items-center justify-center text-center p-6">
                 <div>

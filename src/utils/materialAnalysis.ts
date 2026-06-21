@@ -9,7 +9,13 @@ import type {
   LineSegment,
   FoldStep,
   Point,
+  BatchTrialConfig,
+  TrialResult,
+  TrialOptimizationTarget,
+  MaterialCostEstimate,
+  ParameterRange,
 } from '@/types';
+import { TRIAL_OPTIMIZATION_TARGET_LABELS } from '@/types';
 import { generateFoldSteps, calculateComplexity } from './complexity';
 import { generateId } from './geometry';
 
@@ -694,4 +700,339 @@ export function compareMaterialsForProject(
     baseComplexity,
     comparisons,
   };
+}
+
+const MATERIAL_BASE_COSTS: Record<PaperMaterialType, number> = {
+  kraft: 2.0,
+  washi: 5.0,
+  tant: 4.5,
+  lokta: 6.0,
+  foil: 3.5,
+  tissue_foil: 8.0,
+  elephant_hide: 10.0,
+  newsprint: 1.0,
+  cardstock: 3.0,
+  vellum: 4.0,
+  custom: 3.0,
+};
+
+const PROCESSING_COSTS: Record<ProcessingMethod, number> = {
+  dry_fold: 0,
+  crease_fold: 0.5,
+  score_fold: 1.5,
+  wet_fold: 2.0,
+  mc_fold: 3.0,
+};
+
+export function estimateMaterialCost(material: PaperMaterialConfig): MaterialCostEstimate {
+  const baseCost = MATERIAL_BASE_COSTS[material.materialType] ?? 3.0;
+  
+  const thicknessMultiplier = 0.5 + material.thicknessMm / 0.15;
+  const toughnessMultiplier = 0.5 + material.toughness / 100;
+  const processingCost = PROCESSING_COSTS[material.processingMethod] ?? 0;
+  
+  const totalCost = baseCost * thicknessMultiplier * toughnessMultiplier + processingCost;
+  
+  let costLevel: 'low' | 'medium' | 'high' | 'very_high';
+  if (totalCost < 3) costLevel = 'low';
+  else if (totalCost < 6) costLevel = 'medium';
+  else if (totalCost < 10) costLevel = 'high';
+  else costLevel = 'very_high';
+  
+  return {
+    baseCost,
+    thicknessMultiplier,
+    toughnessMultiplier,
+    processingCost,
+    totalCost: Math.round(totalCost * 100) / 100,
+    costLevel,
+  };
+}
+
+export function calculatePrecisionScore(
+  material: PaperMaterialConfig,
+  analysis: MaterialAnalysisResult
+): number {
+  let score = 0;
+  
+  if (material.thicknessMm <= 0.12) score += 30;
+  else if (material.thicknessMm <= 0.18) score += 20;
+  else if (material.thicknessMm <= 0.25) score += 10;
+  
+  if (material.toughness >= 80) score += 25;
+  else if (material.toughness >= 60) score += 15;
+  else if (material.toughness >= 40) score += 5;
+  
+  if (material.textureDirection === 'bidirectional') score += 15;
+  else score += 8;
+  
+  switch (material.processingMethod) {
+    case 'wet_fold':
+      score += 20;
+      break;
+    case 'mc_fold':
+      score += 18;
+      break;
+    case 'score_fold':
+      score += 15;
+      break;
+    case 'crease_fold':
+      score += 10;
+      break;
+    default:
+      score += 5;
+  }
+  
+  if (analysis.overallRiskLevel === 'low') score += 10;
+  else if (analysis.overallRiskLevel === 'medium') score += 5;
+  
+  if (material.materialType === 'washi' || material.materialType === 'tissue_foil') {
+    score += 5;
+  }
+  
+  return Math.min(100, Math.max(0, score));
+}
+
+function getRiskScore(level: string): number {
+  switch (level) {
+    case 'low': return 100;
+    case 'medium': return 70;
+    case 'high': return 40;
+    case 'critical': return 10;
+    default: return 50;
+  }
+}
+
+export function calculateOverallScore(
+  trial: Omit<TrialResult, 'overallScore' | 'rank'>,
+  target: TrialOptimizationTarget
+): number {
+  const { analysis, costEstimate, precisionScore, foldabilityScore } = trial;
+  
+  const riskScore = getRiskScore(analysis.overallRiskLevel);
+  const successRate = analysis.overallSuccessRate;
+  const costScore = Math.max(0, 100 - costEstimate * 8);
+  
+  switch (target) {
+    case 'highest_success':
+      return Math.round(
+        successRate * 0.5 +
+        foldabilityScore * 0.3 +
+        riskScore * 0.2
+      );
+    case 'lowest_risk':
+      return Math.round(
+        riskScore * 0.5 +
+        successRate * 0.25 +
+        (100 - analysis.adjustedComplexity) * 0.25
+      );
+    case 'lowest_cost':
+      return Math.round(
+        costScore * 0.5 +
+        successRate * 0.25 +
+        riskScore * 0.25
+      );
+    case 'best_precision':
+      return Math.round(
+        precisionScore * 0.5 +
+        successRate * 0.25 +
+        riskScore * 0.25
+      );
+    default:
+      return Math.round(
+        successRate * 0.4 +
+        riskScore * 0.3 +
+        foldabilityScore * 0.3
+      );
+  }
+}
+
+function generateParameterValues(range: ParameterRange): number[] {
+  const values: number[] = [];
+  for (let val = range.min; val <= range.max + range.step / 2; val += range.step) {
+    values.push(Math.round(val * 100) / 100);
+  }
+  return values;
+}
+
+export function generateTrialConfigurations(
+  config: BatchTrialConfig,
+  projectName: string
+): PaperMaterialConfig[] {
+  const thicknessValues = generateParameterValues(config.thicknessRange);
+  const toughnessValues = generateParameterValues(config.toughnessRange);
+  
+  const allCombinations: Array<{
+    materialType: PaperMaterialType;
+    thickness: number;
+    toughness: number;
+    texture: TextureDirection;
+    processing: ProcessingMethod;
+  }> = [];
+  
+  for (const materialType of config.materialTypes) {
+    for (const thickness of thicknessValues) {
+      for (const toughness of toughnessValues) {
+        for (const texture of config.textureDirections) {
+          for (const processing of config.processingMethods) {
+            allCombinations.push({
+              materialType,
+              thickness,
+              toughness,
+              texture,
+              processing,
+            });
+          }
+        }
+      }
+    }
+  }
+  
+  const selectedCombinations = allCombinations.length > config.maxTrialCount
+    ? stratifiedSampling(allCombinations, config.maxTrialCount)
+    : allCombinations;
+  
+  const now = Date.now();
+  return selectedCombinations.map((combo, idx) => {
+    const preset = MATERIAL_PRESETS[combo.materialType];
+    return {
+      id: generateId(),
+      name: `${projectName} - 试验${idx + 1}`,
+      materialType: combo.materialType,
+      thicknessMm: combo.thickness,
+      toughness: combo.toughness,
+      textureDirection: combo.texture,
+      processingMethod: combo.processing,
+      color: preset?.color ?? '#F5EFE0',
+      customNotes: `批量试验生成 - ${MATERIAL_TYPE_LABELS[combo.materialType]}`,
+      createdAt: now,
+      updatedAt: now,
+    };
+  });
+}
+
+function stratifiedSampling<T>(items: T[], targetCount: number): T[] {
+  if (items.length <= targetCount) return items;
+  
+  const result: T[] = [];
+  const step = items.length / targetCount;
+  
+  for (let i = 0; i < targetCount; i++) {
+    const index = Math.floor(i * step);
+    result.push(items[index]);
+  }
+  
+  return result;
+}
+
+export function runBatchTrial(
+  project: {
+    id: string;
+    name: string;
+    lines: LineSegment[];
+    foldSteps: FoldStep[];
+    paper: { width: number; height: number; origin: Point };
+    complexity: number;
+    isFoldable: boolean;
+    conflictCount?: number;
+  },
+  config: BatchTrialConfig,
+  optimizationTarget: TrialOptimizationTarget
+): TrialResult[] {
+  const materialConfigs = generateTrialConfigurations(config, project.name);
+  
+  const trials: TrialResult[] = materialConfigs.map((materialConfig) => {
+    const analysis = analyzeMaterialForProject(
+      materialConfig,
+      project.lines,
+      project.foldSteps,
+      project.paper,
+      project.complexity,
+      project.isFoldable,
+      project.conflictCount ?? 0
+    );
+    
+    const foldabilityScore = Math.round(
+      (analysis.overallSuccessRate * 0.5) +
+      ((100 - analysis.foldDifficulty) * 0.3) +
+      (getRiskScore(analysis.overallRiskLevel) * 0.2)
+    );
+    
+    const costEstimate = estimateMaterialCost(materialConfig).totalCost;
+    const precisionScore = calculatePrecisionScore(materialConfig, analysis);
+    
+    const trial: Omit<TrialResult, 'overallScore' | 'rank' | 'isRecommended'> = {
+      id: generateId(),
+      trialConfigId: config.id,
+      materialConfig,
+      analysis,
+      foldabilityScore,
+      costEstimate,
+      precisionScore,
+    };
+    
+    const overallScore = calculateOverallScore(trial, optimizationTarget);
+    
+    return {
+      ...trial,
+      overallScore,
+    };
+  });
+  
+  trials.sort((a, b) => b.overallScore - a.overallScore);
+  
+  return trials.map((trial, idx) => ({
+    ...trial,
+    rank: idx + 1,
+    isRecommended: idx === 0,
+  }));
+}
+
+export function createDefaultTrialConfig(name: string = '默认试验配置'): BatchTrialConfig {
+  return {
+    id: generateId(),
+    name,
+    materialTypes: ['kraft', 'washi', 'tant', 'cardstock'],
+    thicknessRange: { min: 0.08, max: 0.25, step: 0.05 },
+    toughnessRange: { min: 50, max: 90, step: 20 },
+    textureDirections: ['grain_long', 'bidirectional'],
+    processingMethods: ['score_fold', 'crease_fold', 'wet_fold'],
+    maxTrialCount: 12,
+    createdAt: Date.now(),
+  };
+}
+
+export function exportTrialComparison(
+  projectName: string,
+  trials: TrialResult[],
+  optimizationTarget: TrialOptimizationTarget,
+  baseComplexity: number
+): string {
+  const exportData = {
+    projectName,
+    exportedAt: new Date().toISOString(),
+    optimizationTarget: TRIAL_OPTIMIZATION_TARGET_LABELS?.[optimizationTarget] ?? optimizationTarget,
+    baseComplexity,
+    trials: trials.map((trial) => ({
+      rank: trial.rank ?? 0,
+      materialName: trial.materialConfig.name,
+      materialType: MATERIAL_TYPE_LABELS[trial.materialConfig.materialType],
+      thicknessMm: trial.materialConfig.thicknessMm,
+      toughness: trial.materialConfig.toughness,
+      textureDirection: TEXTURE_DIRECTION_LABELS[trial.materialConfig.textureDirection],
+      processingMethod: PROCESSING_METHOD_LABELS[trial.materialConfig.processingMethod],
+      foldabilityScore: trial.foldabilityScore,
+      adjustedComplexity: trial.analysis.adjustedComplexity,
+      foldDifficulty: trial.analysis.foldDifficulty,
+      successRate: trial.analysis.overallSuccessRate,
+      riskLevel: trial.analysis.overallRiskLevel,
+      riskCount: trial.analysis.riskAssessments.filter(r => r.severity !== 'low').length,
+      costEstimate: trial.costEstimate,
+      precisionScore: trial.precisionScore,
+      overallScore: trial.overallScore,
+      isRecommended: trial.isRecommended ?? false,
+    })),
+  };
+  
+  return JSON.stringify(exportData, null, 2);
 }

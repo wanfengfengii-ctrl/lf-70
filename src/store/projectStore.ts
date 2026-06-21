@@ -7,6 +7,10 @@ import type {
   PaperMaterialConfig,
   MaterialAnalysisResult,
   MaterialComparison,
+  BatchTrialConfig,
+  BatchTrialResult,
+  TrialResult,
+  TrialOptimizationTarget,
 } from '@/types';
 import { generateId } from '@/utils/geometry';
 import { calculateComplexity, generateFoldSteps, calculateSuccessRate } from '@/utils/complexity';
@@ -16,6 +20,9 @@ import {
   createMaterialFromPreset,
   analyzeMaterialForProject,
   compareMaterialsForProject,
+  runBatchTrial,
+  createDefaultTrialConfig,
+  exportTrialComparison,
 } from '@/utils/materialAnalysis';
 
 const STORAGE_KEY = 'origami-projects';
@@ -321,6 +328,14 @@ interface ProjectStore {
   compareMaterials: (projectId: string, configIds: string[]) => MaterialComparison | null;
   duplicateMaterialConfig: (projectId: string, configId: string, newName: string) => PaperMaterialConfig | null;
   applyPresetToMaterial: (projectId: string, configId: string, presetType: import('@/types').PaperMaterialType) => void;
+
+  createBatchTrial: (projectId: string, config: BatchTrialConfig, target: TrialOptimizationTarget) => BatchTrialResult | null;
+  getBatchTrialResults: (projectId: string) => BatchTrialResult[];
+  getBatchTrialResult: (projectId: string, trialId: string) => BatchTrialResult | undefined;
+  deleteBatchTrial: (projectId: string, trialId: string) => void;
+  applyTrialAsActive: (projectId: string, trialId: string, trialResultId: string) => boolean;
+  reoptimizeBatchTrial: (projectId: string, trialId: string, newTarget: TrialOptimizationTarget) => BatchTrialResult | null;
+  exportBatchTrial: (projectId: string, trialId: string) => string | null;
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -819,6 +834,229 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       ...preset,
       updatedAt: now,
     });
+  },
+
+  createBatchTrial: (projectId, config, target) => {
+    const project = get().getProject(projectId);
+    if (!project) return null;
+
+    const trials = runBatchTrial(
+      {
+        id: project.id,
+        name: project.name,
+        lines: project.lines,
+        foldSteps: project.foldSteps,
+        paper: project.paper,
+        complexity: project.complexity,
+        isFoldable: project.isFoldable,
+        conflictCount: project.conflictCount ?? 0,
+      },
+      config,
+      target
+    );
+
+    const recommended = trials.find(t => t.isRecommended);
+    const result: BatchTrialResult = {
+      id: generateId(),
+      projectId,
+      config,
+      trials,
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      optimizationTarget: target,
+      recommendedTrialId: recommended?.id,
+    };
+
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              batchTrialResults: [...(p.batchTrialResults ?? []), result],
+              updatedAt: Date.now(),
+            }
+          : p
+      ),
+    }));
+    get().saveProjects();
+    return result;
+  },
+
+  getBatchTrialResults: (projectId) => {
+    const project = get().getProject(projectId);
+    return project?.batchTrialResults ?? [];
+  },
+
+  getBatchTrialResult: (projectId, trialId) => {
+    const project = get().getProject(projectId);
+    return project?.batchTrialResults?.find(r => r.id === trialId);
+  },
+
+  deleteBatchTrial: (projectId, trialId) => {
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              batchTrialResults: (p.batchTrialResults ?? []).filter(r => r.id !== trialId),
+              updatedAt: Date.now(),
+            }
+          : p
+      ),
+    }));
+    get().saveProjects();
+  },
+
+  applyTrialAsActive: (projectId, trialId, trialResultId) => {
+    const project = get().getProject(projectId);
+    if (!project) return false;
+
+    const trialResult = project.batchTrialResults?.find(r => r.id === trialId);
+    if (!trialResult) return false;
+
+    const trial = trialResult.trials.find(t => t.id === trialResultId);
+    if (!trial) return false;
+
+    const existingConfigs = project.materialConfigs ?? [];
+    const configToAdd: PaperMaterialConfig = {
+      ...trial.materialConfig,
+      id: generateId(),
+      name: `${trial.materialConfig.name} (推荐方案)`,
+      customNotes: `${trial.materialConfig.customNotes ?? ''}\n来自批量试验 - 排名第${trial.rank}名，综合评分${trial.overallScore}分`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              materialConfigs: [...existingConfigs, configToAdd],
+              activeMaterialConfigId: configToAdd.id,
+              updatedAt: Date.now(),
+            }
+          : p
+      ),
+    }));
+    get().saveProjects();
+    return true;
+  },
+
+  reoptimizeBatchTrial: (projectId, trialId, newTarget) => {
+    const project = get().getProject(projectId);
+    if (!project) return null;
+
+    const existingResult = project.batchTrialResults?.find(r => r.id === trialId);
+    if (!existingResult) return null;
+
+    const reoptimizedTrials = existingResult.trials.map(trial => {
+      const trialWithoutRank = {
+        id: trial.id,
+        trialConfigId: trial.trialConfigId,
+        materialConfig: trial.materialConfig,
+        analysis: trial.analysis,
+        foldabilityScore: trial.foldabilityScore,
+        costEstimate: trial.costEstimate,
+        precisionScore: trial.precisionScore,
+      };
+      const overallScore = (() => {
+        const { analysis, costEstimate, precisionScore, foldabilityScore } = trial;
+        const getRiskScore = (level: string) => {
+          switch (level) {
+            case 'low': return 100;
+            case 'medium': return 70;
+            case 'high': return 40;
+            case 'critical': return 10;
+            default: return 50;
+          }
+        };
+        const riskScore = getRiskScore(analysis.overallRiskLevel);
+        const successRate = analysis.overallSuccessRate;
+        const costScore = Math.max(0, 100 - costEstimate * 8);
+
+        switch (newTarget) {
+          case 'highest_success':
+            return Math.round(
+              successRate * 0.5 +
+              foldabilityScore * 0.3 +
+              riskScore * 0.2
+            );
+          case 'lowest_risk':
+            return Math.round(
+              riskScore * 0.5 +
+              successRate * 0.25 +
+              (100 - analysis.adjustedComplexity) * 0.25
+            );
+          case 'lowest_cost':
+            return Math.round(
+              costScore * 0.5 +
+              successRate * 0.25 +
+              riskScore * 0.25
+            );
+          case 'best_precision':
+            return Math.round(
+              precisionScore * 0.5 +
+              successRate * 0.25 +
+              riskScore * 0.25
+            );
+          default:
+            return Math.round(
+              successRate * 0.4 +
+              riskScore * 0.3 +
+              foldabilityScore * 0.3
+            );
+        }
+      })();
+      return { ...trial, overallScore };
+    });
+
+    reoptimizedTrials.sort((a, b) => b.overallScore - a.overallScore);
+    const finalTrials = reoptimizedTrials.map((trial, idx) => ({
+      ...trial,
+      rank: idx + 1,
+      isRecommended: idx === 0,
+    }));
+
+    const recommended = finalTrials.find(t => t.isRecommended);
+    const updatedResult: BatchTrialResult = {
+      ...existingResult,
+      trials: finalTrials,
+      optimizationTarget: newTarget,
+      recommendedTrialId: recommended?.id,
+      completedAt: Date.now(),
+    };
+
+    set((state) => ({
+      projects: state.projects.map((p) =>
+        p.id === projectId
+          ? {
+              ...p,
+              batchTrialResults: (p.batchTrialResults ?? []).map(r =>
+                r.id === trialId ? updatedResult : r
+              ),
+              updatedAt: Date.now(),
+            }
+          : p
+      ),
+    }));
+    get().saveProjects();
+    return updatedResult;
+  },
+
+  exportBatchTrial: (projectId, trialId) => {
+    const project = get().getProject(projectId);
+    if (!project) return null;
+
+    const trialResult = project.batchTrialResults?.find(r => r.id === trialId);
+    if (!trialResult) return null;
+
+    return exportTrialComparison(
+      project.name,
+      trialResult.trials,
+      trialResult.optimizationTarget,
+      project.complexity
+    );
   },
 }));
 
